@@ -14,8 +14,8 @@ This has been tested on Atmega328p (16MHz).
 
 
 
-Communication protocol
-=============
+#### Communication protocol
+
 The controller support SPI based, bi-directional messaging protocol. It is used to monitor the status, request quadcopter position and send any configuration data.
 
 Each message consists of 4 bytes:
