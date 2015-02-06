@@ -352,7 +352,7 @@ void log_gyro() {
 		sendPacket(1+i,mympu.gyro[i]*100.f);
 }
 
-void log_quat() {
+void log_ypr() {
 
 	for (int8_t i=0;i<3;i++)
 		sendPacket(4+i,mympu.ypr[i]*100.f);
@@ -392,7 +392,7 @@ void log() {
 			break;
 		case 3:
 			if ((loop_count%20)==0) //200Hz -> every 50ms
-				log_quat();
+				log_ypr();
 			else if ((loop_count%20)==10)
 				log_motor();
 			break;
@@ -401,6 +401,14 @@ void log() {
 		case 4:
 			if ((loop_count%20)==0)  //200Hz so 10times a sec... -> every 100ms
 				log_altitude();
+			break;
+		case 5: 
+			if ((loop_count%20)==0) //200Hz -> every 50ms
+				log_ypr();
+#ifdef ALTHOLD
+			else if ((loop_count%20)==10) //200Hz -> every 50ms
+				log_altitude();
+#endif
 			break;
 		case 100: 
 			if ((loop_count%10)==0)  //200Hz so 10times a sec... -> every 50ms
