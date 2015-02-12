@@ -13,7 +13,6 @@
 #define PI_2            1.57079632679489661923f //PI/2
 
 struct s_mympu mympu;
-bool mympu_inverted = false;
 
 struct s_quat { float w, x, y, z; }; 
 
@@ -34,6 +33,12 @@ static unsigned int _rate;
 static unsigned int _c;
 
 int8_t mympu_open(short addr,unsigned int rate, unsigned short orient) {
+//	orient = 172; //180deg rotated 
+//		
+//	OR
+//	orient = 136; //identity
+//	#define INVERTED
+
 	_rate = rate;
 	_c = 0;
 	mpu_select_device(addr);
@@ -192,7 +197,6 @@ int8_t mympu_update() {
 	//	3 - if frame corrupted
 	//       <0 - if error
 	//
-
 	if (ret!=0) return ret; 
 	} while (fifoCount>1);
 	 */
@@ -200,7 +204,9 @@ int8_t mympu_update() {
 	ret = dmp_read_fifo(gyro,accel,q._l,NULL,&sensors,&fifoCount);
 	if (ret!=0) return ret; 
 	if (fifoCount>1) { 
-		mympu_reset_fifo();
+		do { //empty fifo
+			ret = dmp_read_fifo(gyro,accel,q._l,NULL,&sensors,&fifoCount);
+		} while (fifoCount>1 && ret == 0);
 #ifdef DEBUG
 		Serial.print("ERR Fifocount: "); Serial.println(fifoCount); 
 #endif
@@ -213,7 +219,9 @@ int8_t mympu_update() {
 	q._f.z = (float)q._l[3] / (float)QUAT_SENS;
 
 	quaternionToEuler( &q._f, &mympu.ypr[2], &mympu.ypr[1], &mympu.ypr[0] );
-
+	/* need to adjust signs and do the wraps depending on the MPU mount orientation */ 
+	/* if axis is no centered around 0 but around i.e 90 degree due to mount orientation */
+	/* then do:  mympu.ypr[x] = wrap_180(90.f+rad2deg(mympu.ypr[x])); */
 	mympu.ypr[0] = -rad2deg(mympu.ypr[0]);
 	mympu.ypr[1] = -rad2deg(mympu.ypr[1]);
 	mympu.ypr[2] = -shift_180(rad2deg(mympu.ypr[2]));
@@ -222,12 +230,14 @@ int8_t mympu_update() {
 	mympu.gyro[1] = (float)gyro[1] / GYRO_SENS;
 	mympu.gyro[2] = (float)gyro[0] / GYRO_SENS;
 
-
-	static Quaternion qq;
+//#define INVERTED 1
+#ifdef INVERTED
+	Quaternion qq;
 	qq.w=q._f.w;
 	qq.x=q._f.x;
 	qq.y=q._f.y;
 	qq.z=q._f.z;
+
 
 	VectorInt16 a;
 	a.x = (float)accel[0];
@@ -236,7 +246,6 @@ int8_t mympu_update() {
 	a.rotate(&qq);
 	mympu.accel[0] = (float)a.x/ACCEL_SENS;
 	mympu.accel[1] = (float)a.y/ACCEL_SENS;
-	//mympu.accel[2] = (float)a.z/ACCEL_SENS;
 	mympu.accel[2] = (float)a.z/ACCEL_SENS - mympu.gravity;
 
 
@@ -252,9 +261,15 @@ int8_t mympu_update() {
 		mympu.accel[0] *= -1.f;
 		mympu.accel[1] *= -1.f;
 	} 
-		
+#else
+	mympu.accel[0] = (float)accel[0]/ACCEL_SENS;
+	mympu.accel[1] = (float)accel[1]/ACCEL_SENS;
+	mympu.accel[2] = (float)accel[2]/ACCEL_SENS - mympu.gravity;
+#endif
+
 	_c++;
 
 	return 0;
 }
+
 

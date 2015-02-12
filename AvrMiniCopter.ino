@@ -189,8 +189,7 @@ void process_command() {
 				yaw_target = mympu.ypr[0];    //when changing fly_mode during flight reset the yaw_target                                           
 				break;
 			case 4: 
-				if (v==1) mympu_inverted = true;
-				else mympu_inverted = false;
+				gyro_orientation = v;
 				break;
 
 			case 5: case 6: case 7: case 8: 
@@ -503,7 +502,8 @@ void controller_loop() {
 		pid_update(&pid_vz, vz_target - vz, loop_s);
 		// end velocity PID
 
-		accel_err += 0.11164f * (pid_vz.value - accel_z - accel_err);
+		//alpha filter @ 2Hz
+		accel_err += 0.059117f * (pid_vz.value - accel_z - accel_err);
 		pid_update(&pid_accel,accel_err,loop_s);
 		if (alt_hold) {
 			//yprt[3] = 1000;
@@ -512,6 +512,7 @@ void controller_loop() {
 			pid_reset(&pid_alt);
 			pid_reset(&pid_vz);
 			pid_reset(&pid_accel);
+			accel_err = 0.f;
 		} 
 	} else alt_hold = 0; //baro expired
 #endif

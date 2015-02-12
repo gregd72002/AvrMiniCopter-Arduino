@@ -4,9 +4,9 @@
 
 #define PI 3.141592653589793f
 #define D_LPF_HZ 20
-#define LOOP_MS 0.05f //assuming we are running at 200Hz
+#define LOOP_S 0.005f //assuming we are running at 200Hz
 
-static float d_lpf = LOOP_MS / (LOOP_MS + 1/(2*PI*D_LPF_HZ));
+static float d_lpf = LOOP_S / (LOOP_S + 1/(2*PI*D_LPF_HZ));
 
 int pid_init(struct s_pid *pid) {
     pid->Kp=pid->Ki=pid->Kd=0.0f;
