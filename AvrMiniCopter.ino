@@ -1,3 +1,8 @@
+/*
+Copyright 2015, Gregory Dymarek  gregd72002@gmail.com
+*/
+
+
 #include "Arduino.h"
 #ifdef DEBUG
 #include "freeram.h"
@@ -12,20 +17,36 @@ uint8_t crc_err;
 #include "crc8.h"
 #include "pid.h"
 #include "buf.h"
-#include <Servo.h>
+//#include <Servo.h>
+#include "PWM.h"
 
 int ret;
-Servo myservo[4];
 #define SERVO_FL 0
 #define SERVO_BL 1
 #define SERVO_FR 2
 #define SERVO_BR 3
 
-int m[4]; //calculated motor thrust
-byte motor_pin[4]; //FL_PIN,BL_PIN,FR_PIN,BR_PIN;
+byte motor_order = 228;
+
+/*
+We are using the following pins to control ESCs:
+pin0 = 9
+pin1 = 3
+pin2 = 6
+pin3 = 5
+
+motor_order is a mapping array for motor pins - FL, BL, FR, BR
+
+Motor:	FL  | BL  | FR  | BR
+Mask:	0x3 | 0xC | 0x30| 0xC0 
+
+Example:
+Bin:	0 0 | 0 1 | 1 0 | 1 1
+Pin:	0   | 1   | 2   | 3
+*/
 
 uint8_t mpu_addr; 
-int motor_pwm[2]; //min, inflight threshold;
+int16_t motor_pwm[2]; //min, inflight threshold;
 
 struct s_pid pid_r[3];
 struct s_pid pid_s[3];
@@ -86,21 +107,14 @@ int yprt[4] = {0,0,0,0};
 
 void motor_idle() {
 	for (int8_t i=0;i<4;i++)
-		myservo[i].writeMicroseconds(motor_pwm[0]);
-}
+		motor[i] = motor_pwm[0];
 
-void initMotor(int v) {
-	myservo[v].attach(motor_pin[v]);
+	writeMotors();
 }
-
-void testMotor(int m,int v) {
-	myservo[m].writeMicroseconds(v);
-}
-
 
 void initMotors() {
-	for (int8_t i=0;i<4;i++)
-		initMotor(i);
+	initPWM();
+	delay(300);
 	motor_idle();
 }
 
@@ -192,9 +206,14 @@ void process_command() {
 				gyro_orientation = v;
 				break;
 
-			case 5: case 6: case 7: case 8: 
-				motor_pin[t-5] = v; 
+			case 5: 
+				motor_order = v;
 				break;
+
+			case 6: 
+				initMotors();
+				break;
+
 			case 9: mpu_addr = v; break;
 			case 10: yprt[0] = v; break;
 			case 11: yprt[1] = v; break;
@@ -278,8 +297,9 @@ void process_command() {
 			case 223: pid_s[2].Ki = (float)v/1000.f; break; 
 			case 224: pid_s[2].Kd = (float)v/10000.f; break; 
 			case 250: case 251: case 252: case 253:
-				  testMotor(t-250,v); break;
-			case 254: initMotor(v); break;
+				motor[(motor_order >> (2*(t-250))) & 0x3] = v;
+				writeMotors();
+			break;
 			case 255: 
 				  switch (v) {
 					  case 0: sendPacket(255,status); break;
@@ -360,7 +380,7 @@ void log_ypr() {
 
 void log_motor() {
 	for (int8_t i=0;i<4;i++)
-		sendPacket(8+i,m[i]);
+		sendPacket(8+i,motor[(motor_order >> (i*2)) & 0x3]);
 }
 
 
@@ -550,10 +570,10 @@ void controller_loop() {
 	}                                                                        
 
 	//calculate motor speeds                                        
-	m[0] = (int)(yprt[3]+pid_r[2].value-pid_r[1].value+pid_r[0].value);
-	m[1] = (int)(yprt[3]+pid_r[2].value+pid_r[1].value-pid_r[0].value);
-	m[2] = (int)(yprt[3]-pid_r[2].value-pid_r[1].value-pid_r[0].value);
-	m[3] = (int)(yprt[3]-pid_r[2].value+pid_r[1].value+pid_r[0].value);
+	motor[motor_order & 0x3] = (int)(yprt[3]+pid_r[2].value-pid_r[1].value+pid_r[0].value);
+	motor[(motor_order >> 2) & 0x3] = (int)(yprt[3]+pid_r[2].value+pid_r[1].value-pid_r[0].value);
+	motor[(motor_order >> 4) & 0x3] = (int)(yprt[3]-pid_r[2].value-pid_r[1].value-pid_r[0].value);
+	motor[(motor_order >> 6) & 0x3] = (int)(yprt[3]-pid_r[2].value+pid_r[1].value+pid_r[0].value);
 
 	log();
 
@@ -567,10 +587,10 @@ void controller_loop() {
 		return;
 	}
 
-	for (i=0;i<4;i++) { 
-		m[i] = m[i]<motor_pwm[1]?motor_pwm[1]:m[i];
-		myservo[i].writeMicroseconds(m[i]);
-	}
+	for (i=0;i<4;i++) 
+		motor[i] = motor[i]<motor_pwm[1]?motor_pwm[1]:motor[i];
+
+	writeMotors();
 }
 
 int8_t gyroCal() {
