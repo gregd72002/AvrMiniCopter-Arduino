@@ -96,6 +96,9 @@ uint8_t status = 0;
 uint8_t fly_mode;
 uint8_t log_mode;
 
+
+uint8_t i;
+
 //for identity matrix see inv_mpu documentation how this is calculated; this is overwritten by a config packet
 uint8_t gyro_orientation = 136;
 
@@ -106,7 +109,7 @@ byte packet[4];
 int yprt[4] = {0,0,0,0};
 
 void motor_idle() {
-	for (int8_t i=0;i<4;i++)
+	for (i=0;i<4;i++)
 		motor[i] = motor_pwm[0];
 
 	writeMotors();
@@ -126,7 +129,7 @@ void sendPacket(byte t, int v) {
 }
 
 void initAVR() {
-	for (int8_t i=0;i<3;i++) {
+	for (i=0;i<3;i++) {
 		pid_init(&pid_r[i]);
 		pid_init(&pid_s[i]);
 	}
@@ -179,7 +182,7 @@ void setup() {
 #endif
 }
 
-void process_command() { 
+inline void process_command() { 
 	static unsigned long last_command = millis();
 	if (millis() - last_command>2500) {
 		alt_hold=0;
@@ -343,7 +346,6 @@ void log_altitude() {
 #endif
 
 void log_accel() {
-	int8_t i;
 	static float _accelMax[3] = {0.f,0.f,0.f};
 	static float _accelMin[3] = {0.f,0.f,0.f};
 
@@ -367,19 +369,19 @@ void log_accel() {
 }
 
 void log_gyro() {
-	for (int8_t i=0;i<3;i++)
+	for (i=0;i<3;i++)
 		sendPacket(1+i,mympu.gyro[i]*100.f);
 }
 
 void log_ypr() {
 
-	for (int8_t i=0;i<3;i++)
+	for (i=0;i<3;i++)
 		sendPacket(4+i,mympu.ypr[i]*100.f);
 	sendPacket(7,yaw_target*100.f);
 }
 
 void log_motor() {
-	for (int8_t i=0;i<4;i++)
+	for (i=0;i<4;i++)
 		sendPacket(8+i,motor[(motor_order >> (i*2)) & 0x3]);
 }
 
@@ -444,50 +446,15 @@ void log() {
 float loop_s = 0.005f;
 unsigned long p_millis = 0;
 
-void controller_loop() {
-	int8_t i;
-#ifdef MPU9150
-	ret = mympu_update_compass();
-	if (ret < 0) {
-#ifdef DEBUG
-		Serial.print("Error reading compass: "); Serial.println(ret);
-#endif
-	}
-#endif
-	ret = mympu_update();
-	if (ret < 0) {
-#ifdef DEBUG
-		Serial.print("mympu_update: "); Serial.println(ret);
-#endif
-		motor_idle();
-		status = 253;
-		return;
-	}
-#ifdef DEBUG
-	switch (ret) {
-		case 0: c++; break;
-		case 1: np++; return; 
-		case 2: err_o++; return;
-		case 3: err_c++; return;
-	}
-
-#endif
-	if (++loop_count==200) loop_count = 0;
-
-	loop_s = (float)(millis() - p_millis)/1000.0f;
-	p_millis = millis();
-#ifdef DEBUG
-	if (loop_s>0.05) { 
-#else
-	if (loop_s>0.01) { 
-#endif
-		status = 254;
-		motor_idle();
-		return;
-	}
-
+inline void run_failsafe() {
 #ifdef ALTHOLD
+#else
+//	motor_idle();
+#endif
+}
 
+inline void run_althold() {
+#ifdef ALTHOLD
 	if (baro_counter>0) { //if there is no recent baro reading dont do alt_hold
 		baro_counter--;
 		//maintain altitude & velocity
@@ -536,7 +503,9 @@ void controller_loop() {
 		} 
 	} else alt_hold = 0; //baro expired
 #endif
+}
 
+inline void run_pid() {
 	if (abs(mympu.ypr[2])>50.f) yaw_target = mympu.ypr[0]; //disable yaw if rolling excessivly
 	if (abs(mympu.ypr[1])>50.f) yaw_target = mympu.ypr[0]; //disable yaw if pitching excessivly 
 	//flip recovery end
@@ -568,6 +537,55 @@ void controller_loop() {
 	for (i=0;i<3;i++) {                                                  
 		pid_update(&pid_r[i],pid_s[i].value-mympu.gyro[i],loop_s);
 	}                                                                        
+
+}
+
+void controller_loop() {
+#ifdef MPU9150
+	ret = mympu_update_compass();
+	if (ret < 0) {
+#ifdef DEBUG
+		Serial.print("Error reading compass: "); Serial.println(ret);
+#endif
+	}
+#endif
+	ret = mympu_update();
+	if (ret < 0) {
+#ifdef DEBUG
+		Serial.print("mympu_update: "); Serial.println(ret);
+#endif
+		motor_idle();
+		status = 253;
+		return;
+	}
+#ifdef DEBUG
+	switch (ret) {
+		case 0: c++; break;
+		case 1: np++; return; 
+		case 2: err_o++; return;
+		case 3: err_c++; return;
+	}
+
+#endif
+	if (++loop_count==200) loop_count = 0;
+
+	loop_s = (float)(millis() - p_millis)/1000.0f;
+	p_millis = millis();
+#ifdef DEBUG
+	if (loop_s>0.05) { 
+#else
+	if (loop_s>0.01) { 
+#endif
+		status = 254;
+		motor_idle();
+		return;
+	}
+
+	run_failsafe();
+
+	run_althold();
+
+	run_pid();
 
 	//calculate motor speeds                                        
 	motor[motor_order & 0x3] = (int)(yprt[3]+pid_r[2].value-pid_r[1].value+pid_r[0].value);
