@@ -79,6 +79,8 @@ float alt_hold_target;
 
 int8_t failsafe = 0;
 unsigned long max_failsafe_ms = 20000;
+unsigned long failsafeStart = 0;
+float accel_crash_detector = 0.f;
 
 uint8_t loop_count = 0;
 #ifdef DEBUG
@@ -179,8 +181,17 @@ void setup() {
 }
 
 void initiate_failsafe() {
-	if (failsafe) return;
-	else failsafe = 1;
+	if (failsafe) {
+		if (millis()-failsafeStart>=max_failsafe_ms) {
+			status = 252;
+			motor_idle();
+		}
+		return;
+	}
+	else {
+		failsafeStart = millis();
+		failsafe = 1;
+	}
 }
 
 inline void process_command() { 
@@ -248,6 +259,7 @@ inline void process_command() {
 			case 18: motor_pwm[1] = v; break;
 			case 19: motor_pwm[2] = v; break;
 			case 20: max_failsafe_ms = abs(v)*1000; break;
+			case 21: accel_crash_detector = (float)v/100.f; break;
 
 			case 25: 
 				if (failsafe) { failsafe = 0; alt_hold = 0; }
@@ -456,6 +468,32 @@ void log() {
 
 unsigned long p_millis = 0;
 
+int8_t run_crash_detector() {
+	static uint8_t crash_detector = 0;
+	static float crash_alt;
+
+	if (fly_mode!=0) return 0;
+	
+	if (abs(mympu.ypr[1])>=60.f || abs(mympu.ypr[2])>60.f ) crash_detector++;
+	else crash_detector = 0;
+
+	if (crash_detector==1) crash_alt = alt;
+	else if (abs(alt-crash_alt) > 50)  //free fall? if we changed altitude by over 50cm
+		crash_detector = 0;
+
+	if (accel_crash_detector>0.f)
+		if (abs(mympu.accel[0])>accel_crash_detector || abs(mympu.accel[1])>accel_crash_detector || abs(mympu.accel[2])>accel_crash_detector)
+			crash_detector = 200; 
+
+	if (crash_detector>=200) { //1sec
+		status=251;
+		motor_idle();
+		return 1;
+	}
+	
+	return 0;
+}
+
 void alt_override(int8_t target, int8_t climb) {
 	vz_desired = climb;
 	alt_hold_target = target;
@@ -469,17 +507,18 @@ void alt_override(int8_t target, int8_t climb) {
 #define LAND_SPEED 50 //cm/s
 
 int8_t run_failsafe() {
-	static unsigned long failsafeStart;
 	static uint8_t land_detector = 0;
 	int8_t land_speed;
 	if (!failsafe) return 0;
 
 #ifdef ALTHOLD
 	if (failsafe==1) {
-		failsafeStart = millis();
 		failsafe = 2;
 		alt_hold = 1;
 	   	alt_hold_target = alt;
+		yprt[0] = yprt[1] = yprt[2] = yprt[3] = 0;
+		fly_mode = 0;
+		
 		return 0;
 	} 
 
@@ -500,7 +539,6 @@ int8_t run_failsafe() {
 		alt_hold = 0;
 		failsafe = 0;
 		land_detector = 0;
-		//status = 251;
 		return 1;
 	} 
 	
@@ -652,6 +690,8 @@ void controller_loop() {
 		motor_idle();
 		return;
 	}
+
+	if (run_crash_detector()) return;
 
 	if (run_failsafe()) return;
 
