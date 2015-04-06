@@ -18,6 +18,5 @@ void pid_reset(struct s_pid *pid);
 
 void pid_update(struct s_pid *pid, float input, float dt_s);
 
-
 #endif
 

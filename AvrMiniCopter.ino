@@ -29,28 +29,24 @@ int ret;
 byte motor_order = 228;
 
 /*
-We are using the following pins to control ESCs:
-pin0 = 9
-pin1 = 3
-pin2 = 6
-pin3 = 5
+We are using the following pins to control ESCs: 9, 3, 6, 5
 
-motor_order is a mapping array for motor pins - FL, BL, FR, BR
+Motor_order is a 4x 2bit value for the following motors: FL, BL, FR, BR 
+Each 2bit value defines the PIN:
 
-Motor:	FL  | BL  | FR  | BR
-Mask:	0x3 | 0xC | 0x30| 0xC0 
-
-Example:
-Bin:	0 0 | 0 1 | 1 0 | 1 1
-Pin:	0   | 1   | 2   | 3
+Value DEC:	 0  1  2  3
+Value BIN:      00 01 10 11
+Pin:             9  3  6  5
 */
 
 uint8_t mpu_addr; 
-int16_t motor_pwm[2]; //min, inflight threshold;
+int16_t motor_pwm[3]; //min, inflight threshold, hoover
 
 struct s_pid pid_r[3];
 struct s_pid pid_s[3];
 float pid_acro_p;
+
+float loop_s = 0.005f;
 
 #define YAW_THRESHOLD 5
 #define MAX_ALT 20000 //200m (ensure MAX_ALT + MAX_ALT_INC fits into signed int)
@@ -67,21 +63,22 @@ float accel_err = 0.f;
 float accel_corr = 0.f;
 float alt_corr = 0.f;
 float vz_inc = 0.f;
+float vz_err = 0.f;
 float alt_err = 0.f;
 float alt_base = 0.f;
 
 float alt = 0.f;
 float vz = 0.f;
-float pos_err = 0.f, vz_target = 0.f;
+float pos_err = 0.f, vz_target = 0.f, vz_desired;
 
 float bc=0.f,bc1=0.f,bc2=0.f,bc3=0.f;
 uint8_t baro_counter = 0;
 
 int8_t alt_hold = 0;
 float alt_hold_target;
-int alt_hold_throttle;
 
-
+int8_t failsafe = 0;
+unsigned long max_failsafe_ms = 20000;
 
 uint8_t loop_count = 0;
 #ifdef DEBUG
@@ -152,7 +149,6 @@ void initAVR() {
 	crc_err = 0;
 	alt_hold = 0;
 	alt_hold_target = 0.f;
-	alt_hold_throttle = 0;
 	accel_z = 0.f;
 
 	accel_err = 0.f;
@@ -182,10 +178,17 @@ void setup() {
 #endif
 }
 
+void initiate_failsafe() {
+	if (failsafe) return;
+	else failsafe = 1;
+}
+
 inline void process_command() { 
 	static unsigned long last_command = millis();
 	if (millis() - last_command>2500) {
-		alt_hold=0;
+		//TODO: initiate failsafe only when in flight, last_command might be >2500 when starting for the first time
+		if ((status==5) && (yprt[3]>motor_pwm[1])) initiate_failsafe();
+		if (!failsafe) alt_hold = 0; //in case someone put motor_pwm[1] far too high the above will not engage so we will want to ensure alt_hold is switched off
 		yprt[0]=yprt[1]=yprt[2]=yprt[3]=0;
 	}
 	//each command is 4 byte long: what, value(2), crc - do it till buffer empty
@@ -224,6 +227,7 @@ inline void process_command() {
 			case 13: last_command = millis(); yprt[3] = v; break;
 #ifdef ALTHOLD
 			case 14: //altitude reading in cm - convert it into altitude error 
+				 if (alt_hold && abs(alt-v)>1000) break;  //baro is glitching or we are in a free fall
 				 static float b;
 				 baro_counter = 200; //use this baro reading not more than 200 times (this is 1000ms as the loop goes with 200Hz - 5ms)
 				 if (!buf_space(&alt_buf)) b = buf_pop(&alt_buf); //buffer full
@@ -231,7 +235,6 @@ inline void process_command() {
 				 alt_err = v - (b + alt_corr);
 				 break;
 			case 15:   alt_hold = v; 
-				   alt_hold_throttle = yprt[3]; 
 				   alt_hold_target = alt;
 				   break;
 			case 16: 
@@ -243,6 +246,13 @@ inline void process_command() {
 #endif
 			case 17: motor_pwm[0] = v; break;
 			case 18: motor_pwm[1] = v; break;
+			case 19: motor_pwm[2] = v; break;
+			case 20: max_failsafe_ms = abs(v)*1000; break;
+
+			case 25: 
+				if (failsafe) { failsafe = 0; alt_hold = 0; }
+				else initiate_failsafe(); 
+				break;
 
 			case 69: 
 				 bc = v/100.f;
@@ -310,6 +320,7 @@ inline void process_command() {
 					  case 2: status = 2; break;
 					  case 3: sendPacket(253,SPI_osize); break;
 					  case 4: sendPacket(252,SPI_isize); break;
+					  case 5: sendPacket(251,loop_s*1000); break;
 					  case 254: break; //dummy - used for SPI queued message retrieval  
 				  }
 				  break;
@@ -443,14 +454,66 @@ void log() {
 #endif
 }
 
-float loop_s = 0.005f;
 unsigned long p_millis = 0;
 
-inline void run_failsafe() {
+void alt_override(int8_t target, int8_t climb) {
+	vz_desired = climb;
+	alt_hold_target = target;
+	if (alt_hold) alt_hold = 2; //override only if we are already in alt_hold, otherwise do nothing
+	//this means failsafe will only work when in alt_hold
+	//also, when failsafe is angaged, disengaging alt_hold will disengage failsafe too
+	//this is to be able to regain control while in failsafe
+}
+
+#define DELAY_LAND_MS 2000 
+#define LAND_SPEED 50 //cm/s
+
+int8_t run_failsafe() {
+	static unsigned long failsafeStart;
+	static uint8_t land_detector = 0;
+	int8_t land_speed;
+	if (!failsafe) return 0;
+
 #ifdef ALTHOLD
+	if (failsafe==1) {
+		failsafeStart = millis();
+		failsafe = 2;
+		alt_hold = 1;
+	   	alt_hold_target = alt;
+		return 0;
+	} 
+
+	if (millis()-failsafeStart>=max_failsafe_ms) {
+		status = 252;
+		motor_idle();
+		return -1; 
+	}
+
+	if (millis()-failsafeStart<(unsigned long)DELAY_LAND_MS) return 0;
+
+	//check if landed
+	if (abs(vz)<30 && yprt[3]<motor_pwm[1]) land_detector++;
+	else land_detector = 0;
+
+	if (land_detector >= 200) { //1sec grace period
+		motor_idle();
+		alt_hold = 0;
+		failsafe = 0;
+		land_detector = 0;
+		//status = 251;
+		return 1;
+	} 
+	
+		
+	//perform landing
+	land_speed = alt>500?(alt>1500?3*LAND_SPEED:2*LAND_SPEED):LAND_SPEED;
+
+	alt_override(alt_hold_target - (land_speed) * loop_s, -land_speed);
 #else
-//	motor_idle();
+	yprt[0]=yprt[1]=yprt[2]=yprt[3] = 0;
+	alt_hold = 0;	
 #endif
+	return 0;
 }
 
 inline void run_althold() {
@@ -461,7 +524,9 @@ inline void run_althold() {
 
 		//when quadcopter goes up accel+, vz+, alt+;
 		//when quadcopter goes down accel-, vz-, alt-;
-		accel_z = mympu.accel[2]*982.f; //convert accel to cm/s (9.82 * 100)
+		accel_z = constrain(mympu.accel[2],-1.f,1.f)*982.f; //convert accel to cm/s (9.82 * 100)
+		//accel_z = mympu.accel[2]*982.f; //convert accel to cm/s (9.82 * 100)
+	
 		accel_corr += (alt_err * bc3 * loop_s);
 		vz += (alt_err * bc2 * loop_s);
 		alt_corr += (alt_err * bc1 * loop_s);
@@ -485,23 +550,29 @@ inline void run_althold() {
 		}
 		// end altitude PID
 
+		if (alt_hold == 2) vz_target = vz_desired;
 		// do velocity PID
-		pid_update(&pid_vz, vz_target - vz, loop_s);
+		//alpha filter @ 4Hz
+		vz_err += 0.111635f * (vz_target - vz - vz_err);
+		pid_update(&pid_vz, vz_err, loop_s);
 		// end velocity PID
 
 		//alpha filter @ 2Hz
 		accel_err += 0.059117f * (pid_vz.value - accel_z - accel_err);
 		pid_update(&pid_accel,accel_err,loop_s);
 		if (alt_hold) {
-			//yprt[3] = 1000;
-			yprt[3] = (int)(alt_hold_throttle + pid_accel.value); 
+			yprt[3] = (int)(motor_pwm[2] + pid_accel.value); 
 		} else {
 			pid_reset(&pid_alt);
 			pid_reset(&pid_vz);
 			pid_reset(&pid_accel);
 			accel_err = 0.f;
+			vz_err = 0.f;
 		} 
-	} else alt_hold = 0; //baro expired
+	} else {
+		yprt[3] = 0; //in case we do not have connection and baro has expired we should switch off
+		alt_hold = 0; //baro expired
+	}
 #endif
 }
 
@@ -550,6 +621,7 @@ void controller_loop() {
 	}
 #endif
 	ret = mympu_update();
+	if (ret == 1) return;
 	if (ret < 0) {
 #ifdef DEBUG
 		Serial.print("mympu_update: "); Serial.println(ret);
@@ -581,7 +653,7 @@ void controller_loop() {
 		return;
 	}
 
-	run_failsafe();
+	if (run_failsafe()) return;
 
 	run_althold();
 
@@ -606,7 +678,7 @@ void controller_loop() {
 	}
 
 	for (i=0;i<4;i++) 
-		motor[i] = motor[i]<motor_pwm[1]?motor_pwm[1]:motor[i];
+		motor[i] = (motor[i]<motor_pwm[1])?motor_pwm[1]:motor[i];
 
 	writeMotors();
 }

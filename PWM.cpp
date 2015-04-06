@@ -39,6 +39,14 @@ void initPWM() {
 	TIMSK0 |= (1<<OCIE0A);
 }
 
+void deinitPWM() {
+	TCCR1A &= ~_BV(COM1A1); // connect pin 9 to timer 1 channel A
+	TCCR2A &= ~_BV(COM2B1); // connect pin 3 to timer 2 channel B
+
+	TIMSK0 &= ~(1<<OCIE0B); // Disable CTC interrupt 
+	TIMSK0 &= ~(1<<OCIE0A);
+}
+
 
 #define SOFT_PWM_ISR1 TIMER0_COMPB_vect
 #define SOFT_PWM_ISR2 TIMER0_COMPA_vect
@@ -100,6 +108,11 @@ void writeMotors() {
 void initPWM() {
       for (int8_t i=0;i<4;i++)
 		myservo[i].attach(PWM_PIN[i]);
+}
+
+void deinitPWM() {
+      for (int8_t i=0;i<4;i++)
+		myservo[i].detach();
 }
 
 #endif

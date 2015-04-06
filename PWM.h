@@ -1,8 +1,8 @@
 #ifndef PWM_H_
 #define PWM_H_
 
-extern uint8_t PWM_PIN[8];
-extern uint16_t motor[8];
+extern uint8_t PWM_PIN[4];
+extern int16_t motor[4];
 
 void initPWM();
 void writeMotors();
