@@ -46,6 +46,7 @@ struct s_pid pid_r[3];
 struct s_pid pid_s[3];
 float pid_acro_p;
 
+uint8_t loop_ms = 5;
 float loop_s = 0.005f;
 
 #define YAW_THRESHOLD 5
@@ -332,7 +333,7 @@ inline void process_command() {
 					  case 2: status = 2; break;
 					  case 3: sendPacket(253,SPI_osize); break;
 					  case 4: sendPacket(252,SPI_isize); break;
-					  case 5: sendPacket(251,loop_s*1000); break;
+					  case 5: sendPacket(251,loop_ms); break;
 					  case 254: break; //dummy - used for SPI queued message retrieval  
 				  }
 				  break;
@@ -679,12 +680,13 @@ void controller_loop() {
 #endif
 	if (++loop_count==200) loop_count = 0;
 
-	loop_s = (float)(millis() - p_millis)/1000.0f;
+	loop_ms = millis() - p_millis;
+	loop_s = (float)(loop_ms)/1000.0f;
 	p_millis = millis();
 #ifdef DEBUG
-	if (loop_s>0.05) { 
+	if (loop_ms>50) { 
 #else
-	if (loop_s>0.01) { 
+	if (loop_ms>10) { 
 #endif
 		status = 254;
 		motor_idle();
@@ -787,7 +789,7 @@ void loop() {
 		case 4:
 			if (gyroCal()==0) 
 				status = 5;
-			p_millis = millis()-5; //to ensure the first run has dt_ms of 5ms
+			p_millis = millis()-1; //to ensure the first run has dt_ms of 5ms
 			break;
 
 		case 5:
