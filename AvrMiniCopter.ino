@@ -512,16 +512,18 @@ void alt_override(int8_t target, int8_t climb) {
 #define LAND_SPEED 50 //cm/s
 
 int8_t run_failsafe() {
-	static uint8_t land_detector = 0;
+	static uint8_t land_detector;
+	static float failsafe_alt;
 	int8_t land_speed;
 
 	if (!failsafe) return 0;
 
 #ifdef ALTHOLD
 	if (failsafe==1) {
+		land_detector = 0;
 		failsafe = 2;
 		alt_hold = 1;
-		alt_hold_target = alt;
+		failsafe_alt = alt;
 		yprt[0] = yprt[1] = yprt[2] = 0;
 		fly_mode = 0;
 
@@ -540,10 +542,9 @@ int8_t run_failsafe() {
 	if (vz>-30 && yprt[3]<motor_pwm[1]) land_detector++;
 	else land_detector = 0;
 
-	if (land_detector >= 200) { //1sec grace period
+	if (land_detector >= 200) { //1sec grace period. LANDED
 		motor_idle();
-		code = 2;
-		land_detector = 0;
+		status = 254;
 		return 1;
 	} 
 
@@ -551,7 +552,8 @@ int8_t run_failsafe() {
 	//perform landing
 	land_speed = alt>500?(alt>1500?3*LAND_SPEED:2*LAND_SPEED):LAND_SPEED;
 
-	alt_override(alt_hold_target - (land_speed) * loop_s, -land_speed);
+	failsafe_alt -= (land_speed * loop_s);
+	alt_override(failsafe_alt, -land_speed);
 #else
 	motor_idle();
 	failsafe = 0;
