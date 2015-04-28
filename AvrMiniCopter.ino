@@ -615,6 +615,7 @@ inline void run_althold() {
 			vz_err = 0.f;
 		} 
 	} else {
+		if (alt_hold) code = 2;
 		alt_hold = 0; //baro expired
 	}
 #endif
