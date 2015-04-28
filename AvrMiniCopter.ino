@@ -688,118 +688,119 @@ void controller_loop() {
 	loop_s = (float)(loop_ms)/1000.0f;
 	p_millis = millis();
 #ifdef DEBUG
-	if (loop_ms>50) { 
+	if (loop_ms>50) 
 #else
-		if (loop_ms>10) { 
+		if (loop_ms>10) 
 #endif
+		{
 			code = 1;
 			initiate_failsafe();
 		}
 
-		if (run_crash_detector()) return;
+	if (run_crash_detector()) return;
 
-		if (run_failsafe()) return;
+	if (run_failsafe()) return;
 
-		run_althold();
+	run_althold();
 
-		run_pid();
+	run_pid();
 
-		//calculate motor speeds                                        
-		motor[motor_order & 0x3] = (int)(yprt[3]+pid_r[2].value-pid_r[1].value+pid_r[0].value);
-		motor[(motor_order >> 2) & 0x3] = (int)(yprt[3]+pid_r[2].value+pid_r[1].value-pid_r[0].value);
-		motor[(motor_order >> 4) & 0x3] = (int)(yprt[3]-pid_r[2].value-pid_r[1].value-pid_r[0].value);
-		motor[(motor_order >> 6) & 0x3] = (int)(yprt[3]-pid_r[2].value+pid_r[1].value+pid_r[0].value);
+	//calculate motor speeds                                        
+	motor[motor_order & 0x3] = (int)(yprt[3]+pid_r[2].value-pid_r[1].value+pid_r[0].value);
+	motor[(motor_order >> 2) & 0x3] = (int)(yprt[3]+pid_r[2].value+pid_r[1].value-pid_r[0].value);
+	motor[(motor_order >> 4) & 0x3] = (int)(yprt[3]-pid_r[2].value-pid_r[1].value-pid_r[0].value);
+	motor[(motor_order >> 6) & 0x3] = (int)(yprt[3]-pid_r[2].value+pid_r[1].value+pid_r[0].value);
 
-		log();
+	log();
 
-		if (yprt[3] < motor_pwm[1]) {
-			motor_idle();
-			yaw_target = mympu.ypr[0];
-			for (i=0;i<3;i++) {                                              
-				pid_reset(&pid_r[i]);
-				pid_reset(&pid_s[i]);
-			}                                                                    
-			return;
-		}
-
-		for (i=0;i<4;i++) 
-			motor[i] = (motor[i]<motor_pwm[1])?motor_pwm[1]:motor[i];
-
-		writeMotors();
+	if (yprt[3] < motor_pwm[1]) {
+		motor_idle();
+		yaw_target = mympu.ypr[0];
+		for (i=0;i<3;i++) {                                              
+			pid_reset(&pid_r[i]);
+			pid_reset(&pid_s[i]);
+		}                                                                    
+		return;
 	}
 
-	int8_t gyroCal() {
-		static float accel = 0.0f;
-		static byte c = 0;
-		static unsigned int loop_c = 0;
-		loop_c++;
-		if (loop_c>65000) {
-			status=255;
-			return -1;
-		}
-		ret = mympu_update();
-		if (ret!=0) {
-#ifdef DEBUG
-			if (ret!=1) { Serial.print("MPU error! "); Serial.println(ret); }
-#endif
-			return -1;
-		}
+	for (i=0;i<4;i++) 
+		motor[i] = (motor[i]<motor_pwm[1])?motor_pwm[1]:motor[i];
 
-		if (c<200) {
-			if (c>=20) 
-				accel += mympu.accel[2];
-			c++;
-		}
-		if (mympu.gyro[0]>-1.0f && mympu.gyro[1]>-1.0f && mympu.gyro[2]>-1.0f &&    
-				mympu.gyro[0]<1.0f && mympu.gyro[1]<1.0f && mympu.gyro[2]<1.0f) {
+	writeMotors();
+}
+
+int8_t gyroCal() {
+	static float accel = 0.0f;
+	static byte c = 0;
+	static unsigned int loop_c = 0;
+	loop_c++;
+	if (loop_c>65000) {
+		status=255;
+		return -1;
+	}
+	ret = mympu_update();
+	if (ret!=0) {
 #ifdef DEBUG
-			Serial.println("Gyro calibration ok.");
+		if (ret!=1) { Serial.print("MPU error! "); Serial.println(ret); }
 #endif
-			mympu.gravity = accel / (c-20);
-			return 0;
-		}
 		return -1;
 	}
 
-	void loop() {
-		process_command();
-
-		if (status==0) {
-			initAVR();
-			status = 1;
-			sendPacket(255,status); 
-		}
-
-		//status = 2 set by client 
-
-		switch (status) {
-			case 2:
-				initMotors();
-				status = 3;
-				break;
-			case 3: 
-#ifdef DEBUG
-				ret = mympu_open(mpu_addr,50,gyro_orientation);
-#else
-				ret = mympu_open(mpu_addr,200,gyro_orientation);
-#endif
-				//delay(150);
-				if (ret == 0) { 
-					status = 4;
-					mympu_reset_fifo();
-				}
-				break;
-			case 4:
-				if (gyroCal()==0) 
-					status = 5;
-				p_millis = millis()-1; //to ensure the first run has dt_ms of 5ms
-				break;
-
-			case 5:
-				controller_loop();
-				break;
-
-			default: break;
-		}
+	if (c<200) {
+		if (c>=20) 
+			accel += mympu.accel[2];
+		c++;
 	}
+	if (mympu.gyro[0]>-1.0f && mympu.gyro[1]>-1.0f && mympu.gyro[2]>-1.0f &&    
+			mympu.gyro[0]<1.0f && mympu.gyro[1]<1.0f && mympu.gyro[2]<1.0f) {
+#ifdef DEBUG
+		Serial.println("Gyro calibration ok.");
+#endif
+		mympu.gravity = accel / (c-20);
+		return 0;
+	}
+	return -1;
+}
+
+void loop() {
+	process_command();
+
+	if (status==0) {
+		initAVR();
+		status = 1;
+		sendPacket(255,status); 
+	}
+
+	//status = 2 set by client 
+
+	switch (status) {
+		case 2:
+			initMotors();
+			status = 3;
+			break;
+		case 3: 
+#ifdef DEBUG
+			ret = mympu_open(mpu_addr,50,gyro_orientation);
+#else
+			ret = mympu_open(mpu_addr,200,gyro_orientation);
+#endif
+			//delay(150);
+			if (ret == 0) { 
+				status = 4;
+				mympu_reset_fifo();
+			}
+			break;
+		case 4:
+			if (gyroCal()==0) 
+				status = 5;
+			p_millis = millis()-1; //to ensure the first run has dt_ms of 5ms
+			break;
+
+		case 5:
+			controller_loop();
+			break;
+
+		default: break;
+	}
+}
 
