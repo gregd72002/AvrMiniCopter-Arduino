@@ -1,6 +1,6 @@
 /*
-Copyright 2015, Gregory Dymarek  gregd72002@gmail.com
-*/
+   Copyright 2015, Gregory Dymarek  gregd72002@gmail.com
+ */
 
 
 #include "Arduino.h"
@@ -29,15 +29,15 @@ int ret;
 byte motor_order = 228;
 
 /*
-We are using the following pins to control ESCs: 9, 3, 6, 5
+   We are using the following pins to control ESCs: 9, 3, 6, 5
 
-Motor_order is a 4x 2bit value for the following motors: FL, BL, FR, BR 
-Each 2bit value defines the PIN:
+   Motor_order is a 4x 2bit value for the following motors: FL, BL, FR, BR 
+   Each 2bit value defines the PIN:
 
-Value DEC:	 0  1  2  3
-Value BIN:      00 01 10 11
+   Value DEC:	 0  1  2  3
+   Value BIN:      00 01 10 11
 Pin:             9  3  6  5
-*/
+ */
 
 uint8_t mpu_addr; 
 int16_t motor_pwm[3]; //min, inflight threshold, hoover
@@ -79,7 +79,7 @@ int8_t alt_hold = 0;
 float alt_hold_target;
 
 int8_t failsafe = 0;
-unsigned long max_failsafe_ms = 20000;
+unsigned long max_failsafe_ms = 30000;
 unsigned long failsafeStart = 0;
 float accel_crash_detector = 0.f;
 
@@ -93,6 +93,7 @@ unsigned int err_o = 0; //cumulative number of MPU/DMP reads that had overflow b
 
 
 uint8_t status = 0;
+int8_t code = 0;
 uint8_t fly_mode;
 uint8_t log_mode;
 
@@ -109,6 +110,8 @@ byte packet[4];
 int yprt[4] = {0,0,0,0};
 
 void motor_idle() {
+	alt_hold = 0;
+	yprt[3] = motor_pwm[0];
 	for (i=0;i<4;i++)
 		motor[i] = motor_pwm[0];
 
@@ -182,14 +185,12 @@ void setup() {
 }
 
 void initiate_failsafe() {
-	if (failsafe) {
-		if (millis()-failsafeStart>=max_failsafe_ms) {
-			status = 252;
-			motor_idle();
-		}
-		return;
-	}
-	else {
+#ifndef GPS //if there is a problem (failsafe is being activated) we need to ensure the quadcopter is leveled	
+	fly_mode = 0;
+	yprt[0]=yprt[1]=yprt[2]=0;
+#endif
+	if (failsafe) return;
+	else if ((status==5) && (yprt[3]>motor_pwm[1])) {
 		failsafeStart = millis();
 		failsafe = 1;
 	}
@@ -197,12 +198,10 @@ void initiate_failsafe() {
 
 inline void process_command() { 
 	static unsigned long last_command = millis();
-	if (millis() - last_command>2500) {
-		//TODO: initiate failsafe only when in flight, last_command might be >2500 when starting for the first time
-		if ((status==5) && (yprt[3]>motor_pwm[1])) initiate_failsafe();
-		if (!failsafe) alt_hold = 0; //in case someone put motor_pwm[1] far too high the above will not engage so we will want to ensure alt_hold is switched off
-		yprt[0]=yprt[1]=yprt[2]=yprt[3]=0;
-	}
+
+	if (millis() - last_command>2500)
+		initiate_failsafe();
+
 	//each command is 4 byte long: what, value(2), crc - do it till buffer empty
 
 	byte t = 0;
@@ -263,9 +262,8 @@ inline void process_command() {
 			case 21: accel_crash_detector = (float)v/100.f; break;
 
 			case 25: 
-				if (failsafe) { failsafe = 0; alt_hold = 0; }
-				else initiate_failsafe(); 
-				break;
+				 initiate_failsafe(); 
+				 break;
 
 			case 69: 
 				 bc = v/100.f;
@@ -323,9 +321,9 @@ inline void process_command() {
 			case 223: pid_s[2].Ki = (float)v/1000.f; break; 
 			case 224: pid_s[2].Kd = (float)v/10000.f; break; 
 			case 250: case 251: case 252: case 253:
-				motor[(motor_order >> (2*(t-250))) & 0x3] = v;
-				writeMotors();
-			break;
+				  motor[(motor_order >> (2*(t-250))) & 0x3] = v;
+				  writeMotors();
+				  break;
 			case 255: 
 				  switch (v) {
 					  case 0: sendPacket(255,status); break;
@@ -334,6 +332,8 @@ inline void process_command() {
 					  case 3: sendPacket(253,SPI_osize); break;
 					  case 4: sendPacket(252,SPI_isize); break;
 					  case 5: sendPacket(251,loop_ms); break;
+					  case 6: sendPacket(250,failsafe); break;
+					  case 7: sendPacket(254,code); break;
 					  case 254: break; //dummy - used for SPI queued message retrieval  
 				  }
 				  break;
@@ -342,7 +342,7 @@ inline void process_command() {
 				  byte c = packet[3];
 				  Serial.print("Unknown command: "); Serial.print(t); Serial.print(" "); Serial.print(v); Serial.print(" "); Serial.println(c);
 #endif
-				break;
+				  break;
 		}
 	}
 
@@ -474,7 +474,7 @@ int8_t run_crash_detector() {
 	static float crash_alt;
 
 	if (fly_mode!=0) return 0;
-	
+
 	if (abs(mympu.ypr[1])>=60.f || abs(mympu.ypr[2])>60.f ) crash_detector++;
 	else crash_detector = 0;
 
@@ -491,7 +491,7 @@ int8_t run_crash_detector() {
 		motor_idle();
 		return 1;
 	}
-	
+
 	return 0;
 }
 
@@ -499,6 +499,10 @@ void alt_override(int8_t target, int8_t climb) {
 	vz_desired = climb;
 	alt_hold_target = target;
 	if (alt_hold) alt_hold = 2; //override only if we are already in alt_hold, otherwise do nothing
+	else {
+		failsafe = 0;
+		yprt[3] = motor_pwm[0];
+	}
 	//this means failsafe will only work when in alt_hold
 	//also, when failsafe is angaged, disengaging alt_hold will disengage failsafe too
 	//this is to be able to regain control while in failsafe
@@ -510,16 +514,17 @@ void alt_override(int8_t target, int8_t climb) {
 int8_t run_failsafe() {
 	static uint8_t land_detector = 0;
 	int8_t land_speed;
+
 	if (!failsafe) return 0;
 
 #ifdef ALTHOLD
 	if (failsafe==1) {
 		failsafe = 2;
 		alt_hold = 1;
-	   	alt_hold_target = alt;
-		yprt[0] = yprt[1] = yprt[2] = yprt[3] = 0;
+		alt_hold_target = alt;
+		yprt[0] = yprt[1] = yprt[2] = 0;
 		fly_mode = 0;
-		
+
 		return 0;
 	} 
 
@@ -532,25 +537,24 @@ int8_t run_failsafe() {
 	if (millis()-failsafeStart<(unsigned long)DELAY_LAND_MS) return 0;
 
 	//check if landed
-	if (abs(vz)<30 && yprt[3]<motor_pwm[1]) land_detector++;
+	if (vz>-30 && yprt[3]<motor_pwm[1]) land_detector++;
 	else land_detector = 0;
 
 	if (land_detector >= 200) { //1sec grace period
 		motor_idle();
-		alt_hold = 0;
-		failsafe = 0;
+		code = 2;
 		land_detector = 0;
 		return 1;
 	} 
-	
-		
+
+
 	//perform landing
 	land_speed = alt>500?(alt>1500?3*LAND_SPEED:2*LAND_SPEED):LAND_SPEED;
 
 	alt_override(alt_hold_target - (land_speed) * loop_s, -land_speed);
 #else
-	yprt[0]=yprt[1]=yprt[2]=yprt[3] = 0;
-	alt_hold = 0;	
+	motor_idle();
+	failsafe = 0;
 #endif
 	return 0;
 }
@@ -565,7 +569,7 @@ inline void run_althold() {
 		//when quadcopter goes down accel-, vz-, alt-;
 		accel_z = constrain(mympu.accel[2],-1.f,1.f)*982.f; //convert accel to cm/s (9.82 * 100)
 		//accel_z = mympu.accel[2]*982.f; //convert accel to cm/s (9.82 * 100)
-	
+
 		accel_corr += (alt_err * bc3 * loop_s);
 		vz += (alt_err * bc2 * loop_s);
 		alt_corr += (alt_err * bc1 * loop_s);
@@ -609,7 +613,6 @@ inline void run_althold() {
 			vz_err = 0.f;
 		} 
 	} else {
-		yprt[3] = 0; //in case we do not have connection and baro has expired we should switch off
 		alt_hold = 0; //baro expired
 	}
 #endif
@@ -622,7 +625,7 @@ inline void run_pid() {
 
 	//do STAB PID                                                            
 
-	
+
 	if ((yaw_target-mympu.ypr[0])<-180.0f) yaw_target*=-1.f; 
 	if ((yaw_target-mympu.ypr[0])>180.0f) yaw_target*=-1.f; 
 
@@ -667,6 +670,7 @@ void controller_loop() {
 #endif
 		motor_idle();
 		status = 253;
+		code = ret;
 		return;
 	}
 #ifdef DEBUG
@@ -686,117 +690,116 @@ void controller_loop() {
 #ifdef DEBUG
 	if (loop_ms>50) { 
 #else
-	if (loop_ms>10) { 
+		if (loop_ms>10) { 
 #endif
-		status = 254;
-		motor_idle();
-		return;
+			code = 1;
+			initiate_failsafe();
+		}
+
+		if (run_crash_detector()) return;
+
+		if (run_failsafe()) return;
+
+		run_althold();
+
+		run_pid();
+
+		//calculate motor speeds                                        
+		motor[motor_order & 0x3] = (int)(yprt[3]+pid_r[2].value-pid_r[1].value+pid_r[0].value);
+		motor[(motor_order >> 2) & 0x3] = (int)(yprt[3]+pid_r[2].value+pid_r[1].value-pid_r[0].value);
+		motor[(motor_order >> 4) & 0x3] = (int)(yprt[3]-pid_r[2].value-pid_r[1].value-pid_r[0].value);
+		motor[(motor_order >> 6) & 0x3] = (int)(yprt[3]-pid_r[2].value+pid_r[1].value+pid_r[0].value);
+
+		log();
+
+		if (yprt[3] < motor_pwm[1]) {
+			motor_idle();
+			yaw_target = mympu.ypr[0];
+			for (i=0;i<3;i++) {                                              
+				pid_reset(&pid_r[i]);
+				pid_reset(&pid_s[i]);
+			}                                                                    
+			return;
+		}
+
+		for (i=0;i<4;i++) 
+			motor[i] = (motor[i]<motor_pwm[1])?motor_pwm[1]:motor[i];
+
+		writeMotors();
 	}
 
-	if (run_crash_detector()) return;
+	int8_t gyroCal() {
+		static float accel = 0.0f;
+		static byte c = 0;
+		static unsigned int loop_c = 0;
+		loop_c++;
+		if (loop_c>65000) {
+			status=255;
+			return -1;
+		}
+		ret = mympu_update();
+		if (ret!=0) {
+#ifdef DEBUG
+			if (ret!=1) { Serial.print("MPU error! "); Serial.println(ret); }
+#endif
+			return -1;
+		}
 
-	if (run_failsafe()) return;
-
-	run_althold();
-
-	run_pid();
-
-	//calculate motor speeds                                        
-	motor[motor_order & 0x3] = (int)(yprt[3]+pid_r[2].value-pid_r[1].value+pid_r[0].value);
-	motor[(motor_order >> 2) & 0x3] = (int)(yprt[3]+pid_r[2].value+pid_r[1].value-pid_r[0].value);
-	motor[(motor_order >> 4) & 0x3] = (int)(yprt[3]-pid_r[2].value-pid_r[1].value-pid_r[0].value);
-	motor[(motor_order >> 6) & 0x3] = (int)(yprt[3]-pid_r[2].value+pid_r[1].value+pid_r[0].value);
-
-	log();
-
-	if (yprt[3] < motor_pwm[1]) {
-		motor_idle();
-		yaw_target = mympu.ypr[0];
-		for (i=0;i<3;i++) {                                              
-			pid_reset(&pid_r[i]);
-			pid_reset(&pid_s[i]);
-		}                                                                    
-		return;
-	}
-
-	for (i=0;i<4;i++) 
-		motor[i] = (motor[i]<motor_pwm[1])?motor_pwm[1]:motor[i];
-
-	writeMotors();
-}
-
-int8_t gyroCal() {
-	static float accel = 0.0f;
-	static byte c = 0;
-	static unsigned int loop_c = 0;
-	loop_c++;
-	if (loop_c>65000) {
-		status=255;
+		if (c<200) {
+			if (c>=20) 
+				accel += mympu.accel[2];
+			c++;
+		}
+		if (mympu.gyro[0]>-1.0f && mympu.gyro[1]>-1.0f && mympu.gyro[2]>-1.0f &&    
+				mympu.gyro[0]<1.0f && mympu.gyro[1]<1.0f && mympu.gyro[2]<1.0f) {
+#ifdef DEBUG
+			Serial.println("Gyro calibration ok.");
+#endif
+			mympu.gravity = accel / (c-20);
+			return 0;
+		}
 		return -1;
 	}
-	ret = mympu_update();
-	if (ret!=0) {
+
+	void loop() {
+		process_command();
+
+		if (status==0) {
+			initAVR();
+			status = 1;
+			sendPacket(255,status); 
+		}
+
+		//status = 2 set by client 
+
+		switch (status) {
+			case 2:
+				initMotors();
+				status = 3;
+				break;
+			case 3: 
 #ifdef DEBUG
-		if (ret!=1) { Serial.print("MPU error! "); Serial.println(ret); }
-#endif
-		return -1;
-	}
-
-	if (c<200) {
-		if (c>=20) 
-			accel += mympu.accel[2];
-		c++;
-	}
-	if (mympu.gyro[0]>-1.0f && mympu.gyro[1]>-1.0f && mympu.gyro[2]>-1.0f &&    
-			mympu.gyro[0]<1.0f && mympu.gyro[1]<1.0f && mympu.gyro[2]<1.0f) {
-#ifdef DEBUG
-		Serial.println("Gyro calibration ok.");
-#endif
-		mympu.gravity = accel / (c-20);
-		return 0;
-	}
-	return -1;
-}
-
-void loop() {
-	process_command();
-
-	if (status==0) {
-		initAVR();
-		status = 1;
-		sendPacket(255,status); 
-	}
-
-	//status = 2 set by client 
-
-	switch (status) {
-		case 2:
-			initMotors();
-			status = 3;
-			break;
-		case 3: 
-#ifdef DEBUG
-			ret = mympu_open(mpu_addr,50,gyro_orientation);
+				ret = mympu_open(mpu_addr,50,gyro_orientation);
 #else
-			ret = mympu_open(mpu_addr,200,gyro_orientation);
+				ret = mympu_open(mpu_addr,200,gyro_orientation);
 #endif
-			//delay(150);
-			if (ret == 0) { 
-				status = 4;
-				mympu_reset_fifo();
-			}
-			break;
-		case 4:
-			if (gyroCal()==0) 
-				status = 5;
-			p_millis = millis()-1; //to ensure the first run has dt_ms of 5ms
-			break;
+				//delay(150);
+				if (ret == 0) { 
+					status = 4;
+					mympu_reset_fifo();
+				}
+				break;
+			case 4:
+				if (gyroCal()==0) 
+					status = 5;
+				p_millis = millis()-1; //to ensure the first run has dt_ms of 5ms
+				break;
 
-		case 5:
-			controller_loop();
-			break;
+			case 5:
+				controller_loop();
+				break;
 
-		default: break;
+			default: break;
+		}
 	}
-}
 
