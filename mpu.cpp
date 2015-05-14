@@ -47,6 +47,7 @@ int8_t mympu_open(short addr,unsigned int rate, unsigned short orient) {
 	mympu.gravity = 0.f;
 
 	ret = mpu_init(NULL);
+#define MPU_DEBUG 1
 #ifdef MPU_DEBUG
 	if (ret) return 10+ret;
 #endif

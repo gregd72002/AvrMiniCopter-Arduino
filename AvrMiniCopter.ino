@@ -324,6 +324,7 @@ inline void process_command() {
 				  motor[(motor_order >> (2*(t-250))) & 0x3] = v;
 				  writeMotors();
 				  break;
+			case 244: status = v; break;
 			case 255: 
 				  switch (v) {
 					  case 0: sendPacket(255,status); break;
@@ -742,10 +743,13 @@ int8_t gyroCal() {
 		return -1;
 	}
 	ret = mympu_update();
-	if (ret!=0) {
+	if (ret==1) return -1;
+	else if (ret<0) {
 #ifdef DEBUG
-		if (ret!=1) { Serial.print("MPU error! "); Serial.println(ret); }
+		Serial.print("MPU error! "); Serial.println(ret);
 #endif
+		status = 253;
+		code = ret;
 		return -1;
 	}
 
@@ -787,10 +791,13 @@ void loop() {
 #else
 			ret = mympu_open(mpu_addr,200,gyro_orientation);
 #endif
-			//delay(150);
 			if (ret == 0) { 
+				//delay(150);
 				status = 4;
 				mympu_reset_fifo();
+			} else {
+				status = 250;
+				code = ret;
 			}
 			break;
 		case 4:
