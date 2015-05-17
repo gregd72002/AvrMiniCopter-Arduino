@@ -10,6 +10,7 @@
 
 
 uint8_t crc_err;
+uint8_t mpu_err;
 #include "mpu.h"
 #include "I2Cdev.h"
 #include <SPI.h>
@@ -153,6 +154,7 @@ void initAVR() {
 	fly_mode = 0;
 	log_mode = 0;
 	crc_err = 0;
+	mpu_err = 0;
 	alt_hold = 0;
 	alt_hold_target = 0.f;
 	accel_z = 0.f;
@@ -169,7 +171,7 @@ void initAVR() {
 }
 
 void setup() {
-	Fastwire::setup(400,0);
+//	Fastwire::setup(400,0);
 
 #ifdef DEBUG
 	Serial.begin(115200);
@@ -335,6 +337,7 @@ inline void process_command() {
 					  case 5: sendPacket(251,loop_ms); break;
 					  case 6: sendPacket(250,failsafe); break;
 					  case 7: sendPacket(254,code); break;
+					  case 8: sendPacket(254,mpu_err); break;
 					  case 254: break; //dummy - used for SPI queued message retrieval  
 				  }
 				  break;
@@ -669,14 +672,17 @@ void controller_loop() {
 	ret = mympu_update();
 	if (ret == 1) return;
 	if (ret < 0) {
+		mpu_err++;
 #ifdef DEBUG
 		Serial.print("mympu_update: "); Serial.println(ret);
 #endif
-		motor_idle();
-		status = 253;
-		code = ret;
-		return;
-	}
+		if (mpu_err>10) {
+			motor_idle();
+			status = 253;
+			code = ret;
+			return;
+		}
+	} else mpu_err = 0;
 #ifdef DEBUG
 	switch (ret) {
 		case 0: c++; break;
@@ -786,6 +792,7 @@ void loop() {
 			status = 3;
 			break;
 		case 3: 
+			Fastwire::setup(400,0);
 #ifdef DEBUG
 			ret = mympu_open(mpu_addr,50,gyro_orientation);
 #else
@@ -796,7 +803,9 @@ void loop() {
 				status = 4;
 				mympu_reset_fifo();
 			} else {
-				status = 250;
+				Fastwire::stop();
+				//delay(50);
+				//status = 250;
 				code = ret;
 			}
 			break;

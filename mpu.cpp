@@ -194,8 +194,8 @@ int8_t mympu_update() {
 	// will return:
 	//	0 - if ok
 	//	1 - no packet available
-	//	2 - if BIT_FIFO_OVERFLOWN is set (mpu will reset fifo automatically)
-	//	3 - if frame corrupted
+	//	2 - if BIT_FIFO_OVERFLOWN is set (mpu will reset fifo automatically as FIFO_CORRUPTION_CHECK is set)
+	//	3 - if frame corrupted (mpu will reset fifo as above)
 	//       <0 - if error
 	//
 	if (ret!=0) return ret; 
