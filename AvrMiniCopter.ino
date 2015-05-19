@@ -171,7 +171,7 @@ void initAVR() {
 }
 
 void setup() {
-//	Fastwire::setup(400,0);
+	Fastwire::setup(400,0);
 
 #ifdef DEBUG
 	Serial.begin(115200);
@@ -670,8 +670,8 @@ void controller_loop() {
 	}
 #endif
 	ret = mympu_update();
-	if (ret == 1) return;
-	if (ret < 0) {
+	if (ret != 0) {
+		if (ret==1) return; //no packet available
 		mpu_err++;
 #ifdef DEBUG
 		Serial.print("mympu_update: "); Serial.println(ret);
@@ -680,8 +680,8 @@ void controller_loop() {
 			motor_idle();
 			status = 253;
 			code = ret;
-			return;
 		}
+		return;	
 	} else mpu_err = 0;
 #ifdef DEBUG
 	switch (ret) {
@@ -698,7 +698,7 @@ void controller_loop() {
 	loop_s = (float)(loop_ms)/1000.0f;
 	p_millis = millis();
 #ifdef DEBUG
-	if (loop_ms>50) 
+		if (loop_ms>50) 
 #else
 		if (loop_ms>10) 
 #endif
@@ -740,38 +740,38 @@ void controller_loop() {
 }
 
 int8_t gyroCal() {
+#define CALIBRATION_LOOPS 1600 //8sec * 200
+#define GRAVITY_LOOPS 200 
+#define FAILED_LOOPS 4000 //20sec
+
 	static float accel = 0.0f;
-	static byte c = 0;
 	static unsigned int loop_c = 0;
-	loop_c++;
-	if (loop_c>65000) {
-		status=255;
-		return -1;
-	}
+
 	ret = mympu_update();
-	if (ret==1) return -1;
-	else if (ret<0) {
+	if (ret!=0) {
+		if (ret==1) return -1;
+                mpu_err++;
 #ifdef DEBUG
 		Serial.print("MPU error! "); Serial.println(ret);
 #endif
-		status = 253;
-		code = ret;
+		if (mpu_err>10) {
+			status = 253;
+			code = ret;
+		}
 		return -1;
-	}
+	} else mpu_err = 0;
 
-	if (c<200) {
-		if (c>=20) 
-			accel += mympu.accel[2];
-		c++;
-	}
 	if (mympu.gyro[0]>-1.0f && mympu.gyro[1]>-1.0f && mympu.gyro[2]>-1.0f &&    
-			mympu.gyro[0]<1.0f && mympu.gyro[1]<1.0f && mympu.gyro[2]<1.0f) {
-#ifdef DEBUG
-		Serial.println("Gyro calibration ok.");
-#endif
-		mympu.gravity = accel / (c-20);
+			mympu.gyro[0]<1.0f && mympu.gyro[1]<1.0f && mympu.gyro[2]<1.0f) { 
+		loop_c++;
+		if (loop_c>CALIBRATION_LOOPS) accel += mympu.accel[2]; 
+	} else loop_c = 0;
+
+	if (loop_c>=(CALIBRATION_LOOPS+GRAVITY_LOOPS)) { 
+		mympu.gravity = accel / GRAVITY_LOOPS;
 		return 0;
 	}
+
 	return -1;
 }
 
@@ -787,27 +787,26 @@ void loop() {
 	//status = 2 set by client 
 
 	switch (status) {
-		case 2:
-			initMotors();
-			status = 3;
-			break;
-		case 3: 
-			Fastwire::setup(400,0);
+		case 2: 
+			sendPacket(255,status); 
 #ifdef DEBUG
 			ret = mympu_open(mpu_addr,50,gyro_orientation);
 #else
 			ret = mympu_open(mpu_addr,200,gyro_orientation);
 #endif
 			if (ret == 0) { 
-				//delay(150);
-				status = 4;
+				status = 3;
 				mympu_reset_fifo();
 			} else {
-				Fastwire::stop();
-				//delay(50);
-				//status = 250;
+				Fastwire::reset();
+				delay(25);
 				code = ret;
 			}
+			break;
+		case 3:
+			sendPacket(255,status); 
+			initMotors();
+			status = 4;
 			break;
 		case 4:
 			if (gyroCal()==0) 

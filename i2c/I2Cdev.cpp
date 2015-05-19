@@ -1,5 +1,5 @@
 #include "Arduino.h"
-#include "i2c.h"
+#include "I2Cdev.h"
 
 void i2c_init(void) {
   #if defined(INTERNAL_I2C_PULLUPS)

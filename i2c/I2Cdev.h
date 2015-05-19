@@ -1,6 +1,7 @@
 #ifndef I2C_H_
 #define I2C_H_
 
+
 #define I2C_PULLUPS_ENABLE         PORTC |= 1<<4; PORTC |= 1<<5;   // PIN A4&A5 (SDA&SCL)
 #define I2C_PULLUPS_DISABLE        PORTC &= ~(1<<4); PORTC &= ~(1<<5);
 

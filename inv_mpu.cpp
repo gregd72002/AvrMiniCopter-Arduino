@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include "Arduino.h"
 #include "inv_mpu.h"
 
 /* The following functions must be defined for this platform:
