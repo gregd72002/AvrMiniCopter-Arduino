@@ -19,6 +19,11 @@ int SPI_resetBuf() {
     return 0;
 }
 
+void SPI_reset() {
+    SPI_resetBuf();
+    crc_err = 0;
+}
+
 int SPI_getByte(byte *b) {                                                      
     if (!SPI_isize) return -1;                                                    
 

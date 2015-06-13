@@ -153,7 +153,7 @@ void initAVR() {
 	status = 0;
 	fly_mode = 0;
 	log_mode = 0;
-	crc_err = 0;
+
 	mpu_err = 0;
 	alt_hold = 0;
 	alt_hold_target = 0.f;
@@ -168,6 +168,8 @@ void initAVR() {
 
 	alt = 0.f;
 	vz = 0.f;
+	
+	SPI_reset();
 }
 
 void setup() {
@@ -339,11 +341,11 @@ inline void process_command() {
 					  case 1: sendPacket(254,crc_err); break;
 					  case 2: status = 2; break;
 					  case 3: sendPacket(253,SPI_osize); break;
-					  case 4: sendPacket(252,SPI_isize); break;
-					  case 5: sendPacket(251,loop_ms); break;
-					  case 6: sendPacket(250,failsafe); break;
-					  case 7: sendPacket(254,code); break;
-					  case 8: sendPacket(254,mpu_err); break;
+					  case 4: sendPacket(253,SPI_isize); break;
+					  case 5: sendPacket(253,loop_ms); break;
+					  case 6: sendPacket(253,failsafe); break;
+					  case 7: sendPacket(253,code); break;
+					  case 8: sendPacket(253,mpu_err); break;
 					  case 254: break; //dummy - used for SPI queued message retrieval  
 				  }
 				  break;
@@ -786,12 +788,13 @@ void loop() {
 	process_command();
 
 	if (status==0) {
+		delay(25);	
 		initAVR();
 		status = 1;
 		sendPacket(255,status); 
 	}
 
-	//status = 2 set by client 
+	//status = 2 set by client after sending config 
 
 	switch (status) {
 		case 2: 
