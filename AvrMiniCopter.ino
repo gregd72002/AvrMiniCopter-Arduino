@@ -176,9 +176,10 @@ void setup() {
 #ifdef DEBUG
 	Serial.begin(115200);
 #endif
-	SPI.setDataMode(SPI_MODE0);
 	pinMode(MISO,OUTPUT);
 	SPCR |= _BV(SPE);
+	//SPI.setDataMode(SPI_MODE0);
+	//SPI.setBitOrder(MSBFIRST);
 	SPI.attachInterrupt(); //alternatively:SPCR |= _BV(SPIE);
 #ifdef DEBUG
 	Serial.print("MPU init: "); Serial.println(ret);
@@ -200,6 +201,11 @@ void initiate_failsafe() {
 
 inline void process_command() { 
 	static unsigned long last_command = millis();
+
+	if (millis() - last_command>500) {
+		yprt[1] = yprt[2] = 0;
+		fly_mode = 0;
+	}
 
 	if (millis() - last_command>2500)
 		initiate_failsafe();
@@ -477,7 +483,7 @@ int8_t run_crash_detector() {
 	static uint8_t crash_detector = 0;
 	static float crash_alt;
 
-	if (fly_mode!=0) return 0;
+	if (fly_mode!=0) return 0; //dont do crash detection if not in stabilized mode
 
 	if (abs(mympu.ypr[1])>=60.f || abs(mympu.ypr[2])>60.f ) crash_detector++;
 	else crash_detector = 0;
@@ -743,6 +749,7 @@ int8_t gyroCal() {
 #define CALIBRATION_LOOPS 1600 //8sec * 200
 #define GRAVITY_LOOPS 200 
 #define FAILED_LOOPS 4000 //20sec
+#define CALIBRATION_THRESHOLD 2.0f
 
 	static float accel = 0.0f;
 	static unsigned int loop_c = 0;
@@ -761,8 +768,8 @@ int8_t gyroCal() {
 		return -1;
 	} else mpu_err = 0;
 
-	if (mympu.gyro[0]>-1.0f && mympu.gyro[1]>-1.0f && mympu.gyro[2]>-1.0f &&    
-			mympu.gyro[0]<1.0f && mympu.gyro[1]<1.0f && mympu.gyro[2]<1.0f) { 
+	if (mympu.gyro[0]>-CALIBRATION_THRESHOLD && mympu.gyro[1]>-CALIBRATION_THRESHOLD && mympu.gyro[2]>-CALIBRATION_THRESHOLD &&    
+			mympu.gyro[0]<CALIBRATION_THRESHOLD && mympu.gyro[1]<CALIBRATION_THRESHOLD && mympu.gyro[2]<CALIBRATION_THRESHOLD) { 
 		loop_c++;
 		if (loop_c>CALIBRATION_LOOPS) accel += mympu.accel[2]; 
 	} else loop_c = 0;
