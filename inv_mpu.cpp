@@ -44,6 +44,7 @@
 
 static inline int reg_int_cb(struct int_param_s *int_param)
 {
+	return 0;
 }
 #define min(a,b) ((a<b)?a:b)
 
@@ -1540,7 +1541,7 @@ int mpu_read_fifo(short *gyro, short *accel, unsigned long *timestamp,
     /* Assumes maximum packet size is gyro (6) + accel (6). */
     unsigned char data[MAX_PACKET_LENGTH];
     unsigned char packet_size = 0;
-    unsigned short fifo_count, index = 0;
+    unsigned short fifo_count = 0, index = 0;
 
     if (st->chip_cfg.dmp_on)
         return -1;
@@ -2198,7 +2199,7 @@ int mpu_load_firmware(unsigned short length, const unsigned char *firmware,
     for (ii = 0; ii < length; ii += this_write) {
         this_write = min(LOAD_CHUNK, length - ii);
         
-        for (int progIndex = 0; progIndex < this_write; progIndex++)
+        for (unsigned int progIndex = 0; progIndex < this_write; progIndex++)
 #ifdef __SAM3X8E__
             progBuffer[progIndex] = firmware[ii + progIndex];
 #else
@@ -2694,7 +2695,7 @@ int mpu_lp_motion_interrupt(unsigned short thresh, unsigned char time,
 #endif
     } else {
         /* Don't "restore" the previous state if no state has been saved. */
-        int ii;
+        unsigned int ii;
         char *cache_ptr = (char*)&st->chip_cfg.cache;
         for (ii = 0; ii < sizeof(st->chip_cfg.cache); ii++) {
             if (cache_ptr[ii] != 0)

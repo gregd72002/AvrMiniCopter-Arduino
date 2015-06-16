@@ -163,7 +163,7 @@ static inline float wrap_180(float x) {
 }
 
 static inline float shift_180(float x) {
-	return x+180>180?x-180:x+180;
+	return x+180.f>180.f?x-180.f:x+180.f;
 }
 
 void mympu_reset_fifo() {

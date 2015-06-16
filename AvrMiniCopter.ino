@@ -49,8 +49,9 @@ float pid_acro_p;
 
 uint8_t loop_ms = 5;
 float loop_s = 0.005f;
+unsigned long p_millis = 0;
 
-#define YAW_THRESHOLD 5
+#define YAW_THRESHOLD 8
 #define MAX_ALT 20000 //200m (ensure MAX_ALT + MAX_ALT_INC fits into signed int)
 #define MAX_ALT_INC 1000 //10m
 #define MAX_ACCEL  250
@@ -81,10 +82,11 @@ float alt_hold_target;
 
 int8_t failsafe = 0;
 unsigned long max_failsafe_ms = 30000;
-unsigned long failsafeStart = 0;
+unsigned long failsafeStart = 0u;
 float accel_crash_detector = 0.f;
+unsigned long last_command = 0; 
 
-uint8_t loop_count = 0;
+uint8_t loop_count = 0u;
 #ifdef DEBUG
 unsigned int c = 0; //cumulative number of successful MPU/DMP reads
 unsigned int np = 0; //cumulative number of MPU/DMP reads that brought no packet back
@@ -103,9 +105,7 @@ uint8_t i;
 
 //for identity matrix see inv_mpu documentation how this is calculated; this is overwritten by a config packet
 uint8_t gyro_orientation = 136;
-
 float yaw_target;
-
 byte packet[4];
 
 int yprt[4] = {0,0,0,0};
@@ -182,40 +182,33 @@ void setup() {
 	SPCR |= _BV(SPE);
 	//SPI.setDataMode(SPI_MODE0);
 	//SPI.setBitOrder(MSBFIRST);
-	SPI.attachInterrupt(); //alternatively:SPCR |= _BV(SPIE);
+	//SPI.attachInterrupt(); //alternatively:
+	SPCR |= _BV(SPIE);
 #ifdef DEBUG
 	Serial.print("MPU init: "); Serial.println(ret);
 	Serial.print("Free mem: "); Serial.println(freeRam());
 #endif
 }
 
-void initiate_failsafe() {
-#ifndef GPS //if there is a problem (failsafe is being activated) we need to ensure the quadcopter is leveled	
-	fly_mode = 0;
-	yprt[0]=yprt[1]=yprt[2]=0;
-#endif
-	if (failsafe) return;
-	else if ((status==5) && (yprt[3]>motor_pwm[1])) {
-		failsafeStart = millis();
-		failsafe = 1;
-	}
-}
 
-inline void process_command() { 
-	static unsigned long last_command = millis();
-
-	if (millis() - last_command>500) {
-		yprt[1] = yprt[2] = 0;
-		fly_mode = 0;
-	}
-
-	if (millis() - last_command>2500)
-		initiate_failsafe();
-
-	//each command is 4 byte long: what, value(2), crc - do it till buffer empty
+void process_command() { 
 
 	byte t = 0;
 	int v = 0;
+
+	unsigned long t_lag = (millis() - last_command);
+	if ((status==5) && (!failsafe) && (yprt[3]>motor_pwm[1])) { //dont do any failsafe if not in a flight
+		if (t_lag>2500) { 
+			code = 3;
+			failsafe = 1;
+		} else if (t_lag>500) {
+			yprt[0] = yprt[1] = yprt[2] = 0;
+			fly_mode = 0;
+		} 
+	}
+
+	//each command is 4 byte long: what, value(2), crc - do it till buffer empty
+
 	if (SPI_getPacket(packet)==0) {
 		t = packet[0];
 		v = packet[2] << 8 | packet[1];
@@ -248,7 +241,7 @@ inline void process_command() {
 			case 13: last_command = millis(); yprt[3] = v; break;
 #ifdef ALTHOLD
 			case 14: //altitude reading in cm - convert it into altitude error 
-				 if (alt_hold && abs(alt-v)>1000) break;  //baro is glitching or we are in a free fall
+				 if (alt_hold && abs(alt-v)>1000) return;  //baro is glitching or we are in a free fall
 				 static float b;
 				 baro_counter = 200; //use this baro reading not more than 200 times (this is 1000ms as the loop goes with 200Hz - 5ms)
 				 if (!buf_space(&alt_buf)) b = buf_pop(&alt_buf); //buffer full
@@ -259,6 +252,7 @@ inline void process_command() {
 				   alt_hold_target = alt;
 				   break;
 			case 16: 
+				   if (failsafe) return;
 				   if (v>MAX_ALT_INC) alt_hold_target += MAX_ALT_INC; 
 				   else if (v<-MAX_ALT_INC) alt_hold_target -= MAX_ALT_INC;
 				   else alt_hold_target += v;
@@ -272,7 +266,7 @@ inline void process_command() {
 			case 21: accel_crash_detector = (float)v/100.f; break;
 
 			case 25: 
-				 initiate_failsafe(); 
+				 if (!failsafe) failsafe = 1; 
 				 break;
 
 			case 69: 
@@ -362,22 +356,11 @@ inline void process_command() {
 
 
 #ifdef ALTHOLD
-void log_accel_pid() {
-	//	sendPacket(100,vz);
-	//	sendPacket(101,pos_err*100.f);
-	//	sendPacket(102,accel_err*100.f);
-	/*
-	   sendPacket(103,pid_alt.value);
-	   sendPacket(104,pid_vz.value);
-	   sendPacket(105,pid_accel.value);
-	 */
-}
 
 void log_altitude() {
 	sendPacket(18,alt_hold_target);
 	sendPacket(19,alt);
 	sendPacket(20,vz);
-	sendPacket(21,pid_accel.value);
 }
 #endif
 
@@ -467,10 +450,6 @@ void log() {
 				log_altitude();
 #endif
 			break;
-		case 100: 
-			if ((loop_count%10)==0)  //200Hz so 10times a sec... -> every 50ms
-				log_accel_pid();
-			break;
 
 #endif
 
@@ -479,19 +458,17 @@ void log() {
 #endif
 }
 
-unsigned long p_millis = 0;
-
 int8_t run_crash_detector() {
 	static uint8_t crash_detector = 0;
 	static float crash_alt;
 
-	if (fly_mode!=0) return 0; //dont do crash detection if not in stabilized mode
+	if (fly_mode!=0 || yprt[3]<=motor_pwm[1]) return 0; //dont do crash detection if not in stabilized mode
 
 	if (abs(mympu.ypr[1])>=60.f || abs(mympu.ypr[2])>60.f ) crash_detector++;
 	else crash_detector = 0;
 
 	if (crash_detector==1) crash_alt = alt;
-	else if (abs(alt-crash_alt) > 50)  //free fall? if we changed altitude by over 50cm
+	else if (abs(alt-crash_alt) > 50.f)  //free fall? if we changed altitude by over 50cm
 		crash_detector = 0;
 
 	if (accel_crash_detector>0.f)
@@ -507,7 +484,7 @@ int8_t run_crash_detector() {
 	return 0;
 }
 
-void alt_override(int8_t target, int8_t climb) {
+void alt_override(float target, float climb) {
 	vz_desired = climb;
 	alt_hold_target = target;
 	if (alt_hold) alt_hold = 2; //override only if we are already in alt_hold, otherwise do nothing
@@ -521,27 +498,35 @@ void alt_override(int8_t target, int8_t climb) {
 }
 
 #define DELAY_LAND_MS 2000 
-#define LAND_SPEED 50 //cm/s
+#define LAND_SPEED 50.f //cm/s
 
 int8_t run_failsafe() {
 	static uint8_t land_detector;
 	static float failsafe_alt;
-	int8_t land_speed;
+	float land_speed;
 
 	if (!failsafe) return 0;
 
 #ifdef ALTHOLD
-	if (failsafe==1) {
-		land_detector = 0;
-		failsafe = 2;
-		alt_hold = 1;
-		failsafe_alt = alt;
-		yprt[0] = yprt[1] = yprt[2] = 0;
-		fly_mode = 0;
-
+	if (failsafe==1) { 
+		if  (yprt[3]>motor_pwm[1]) {
+			land_detector = 0;
+			failsafe = 2;
+			alt_hold = 1;
+			failsafe_alt = alt;
+			failsafeStart = millis();
+			yprt[0] = yprt[1] = yprt[2] = 0;
+			fly_mode = 0;
+		} else {
+			motor_idle();
+		}
 		return 0;
 	} 
 
+// TESTING
+//	motor_idle();
+//	return 0;
+// TESTING
 	if (millis()-failsafeStart>=max_failsafe_ms) {
 		status = 252;
 		motor_idle();
@@ -551,7 +536,7 @@ int8_t run_failsafe() {
 	if (millis()-failsafeStart<(unsigned long)DELAY_LAND_MS) return 0;
 
 	//check if landed
-	if (vz>-30 && yprt[3]<motor_pwm[1]) land_detector++;
+	if (vz>-30.f && yprt[3]<motor_pwm[1]) land_detector++;
 	else land_detector = 0;
 
 	if (land_detector >= 200) { //1sec grace period. LANDED
@@ -562,7 +547,7 @@ int8_t run_failsafe() {
 
 
 	//perform landing
-	land_speed = alt>500?(alt>1500?3*LAND_SPEED:2*LAND_SPEED):LAND_SPEED;
+	land_speed = alt>500.f?(alt>1500.f?3*LAND_SPEED:2*LAND_SPEED):LAND_SPEED;
 
 	failsafe_alt -= (land_speed * loop_s);
 	alt_override(failsafe_alt, -land_speed);
@@ -573,12 +558,11 @@ int8_t run_failsafe() {
 	return 0;
 }
 
-inline void run_althold() {
+void run_althold() {
 #ifdef ALTHOLD
 	if (baro_counter>0) { //if there is no recent baro reading dont do alt_hold
 		baro_counter--;
 		//maintain altitude & velocity
-
 		//when quadcopter goes up accel+, vz+, alt+;
 		//when quadcopter goes down accel-, vz-, alt-;
 		accel_z = constrain(mympu.accel[2],-1.f,1.f)*982.f; //convert accel to cm/s (9.82 * 100)
@@ -617,6 +601,7 @@ inline void run_althold() {
 		//alpha filter @ 2Hz
 		accel_err += 0.059117f * (pid_vz.value - accel_z - accel_err);
 		pid_update(&pid_accel,accel_err,loop_s);
+
 		if (alt_hold) {
 			yprt[3] = (int)(motor_pwm[2] + pid_accel.value); 
 		} else {
@@ -633,7 +618,7 @@ inline void run_althold() {
 #endif
 }
 
-inline void run_pid() {
+void run_pid() {
 	if (abs(mympu.ypr[2])>50.f) yaw_target = mympu.ypr[0]; //disable yaw if rolling excessivly
 	if (abs(mympu.ypr[1])>50.f) yaw_target = mympu.ypr[0]; //disable yaw if pitching excessivly 
 	//flip recovery end
@@ -703,7 +688,7 @@ void controller_loop() {
 	if (++loop_count==200) loop_count = 0;
 
 	loop_ms = millis() - p_millis;
-	loop_s = (float)(loop_ms)/1000.0f;
+	loop_s = (float)(loop_ms)/1000.f;
 	p_millis = millis();
 #ifdef DEBUG
 		if (loop_ms>50) 
@@ -712,14 +697,14 @@ void controller_loop() {
 #endif
 		{
 			code = 1;
-			initiate_failsafe();
+			if (!failsafe) failsafe = 1;
 		}
+
+	run_althold(); //need to run this before failsafe to set throttle 
 
 	if (run_crash_detector()) return;
 
 	if (run_failsafe()) return;
-
-	run_althold();
 
 	run_pid();
 
@@ -774,7 +759,9 @@ int8_t gyroCal() {
 			mympu.gyro[0]<CALIBRATION_THRESHOLD && mympu.gyro[1]<CALIBRATION_THRESHOLD && mympu.gyro[2]<CALIBRATION_THRESHOLD) { 
 		loop_c++;
 		if (loop_c>CALIBRATION_LOOPS) accel += mympu.accel[2]; 
-	} else loop_c = 0;
+	} else 
+		if (loop_c>CALIBRATION_LOOPS) status = 255; //if not in CALIBRATION_THRESHOLD but were there before 
+		else loop_c = 0;
 
 	if (loop_c>=(CALIBRATION_LOOPS+GRAVITY_LOOPS)) { 
 		mympu.gravity = accel / GRAVITY_LOOPS;
@@ -785,14 +772,15 @@ int8_t gyroCal() {
 }
 
 void loop() {
-	process_command();
 
 	if (status==0) {
-		delay(25);	
+		delay(100);	
 		initAVR();
 		status = 1;
 		sendPacket(255,status); 
 	}
+
+	process_command();
 
 	//status = 2 set by client after sending config 
 
@@ -822,6 +810,7 @@ void loop() {
 			if (gyroCal()==0) 
 				status = 5;
 			p_millis = millis()-1; //to ensure the first run has dt_ms of 5ms
+			last_command = p_millis;
 			break;
 
 		case 5:
