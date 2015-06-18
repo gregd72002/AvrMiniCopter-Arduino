@@ -535,7 +535,7 @@ int8_t run_failsafe() {
 
 	if (millis()-failsafeStart<(unsigned long)DELAY_LAND_MS) return 0;
 
-	//check if landed
+	//check if landed - possible improvement: https://github.com/diydrones/ardupilot/blob/f314b243eeefd91583339fb67126e0cc42520064/ArduCopter/land_detector.cpp
 	if (vz>-30.f && yprt[3]<motor_pwm[1]) land_detector++;
 	else land_detector = 0;
 
