@@ -41,7 +41,7 @@ Pin:             9  3  6  5
  */
 
 uint8_t mpu_addr; 
-int16_t motor_pwm[3]; //min, inflight threshold, hoover
+int16_t motor_pwm[4]; //standby, min, inflight threshold, hoover
 
 struct s_pid pid_r[3];
 struct s_pid pid_s[3];
@@ -197,7 +197,7 @@ void process_command() {
 	int v = 0;
 
 	unsigned long t_lag = (millis() - last_command);
-	if ((status==5) && (!failsafe) && (yprt[3]>motor_pwm[1])) { //dont do any failsafe if not in a flight
+	if ((status==5) && (!failsafe) && (yprt[3]>motor_pwm[1])) { //dont check for lag if not spinning 
 		if (t_lag>2500) { 
 			code = 3;
 			failsafe = 1;
@@ -261,9 +261,10 @@ void process_command() {
 #endif
 			case 17: motor_pwm[0] = v; break;
 			case 18: motor_pwm[1] = v; break;
-			case 19: motor_pwm[2] = v; break;
+			case 19: motor_pwm[3] = v; break;
 			case 20: max_failsafe_ms = abs(v)*1000; break;
 			case 21: accel_crash_detector = (float)v/100.f; break;
+			case 22: motor_pwm[2] = v; break;
 
 			case 25: 
 				 if (!failsafe) failsafe = 1; 
@@ -509,7 +510,7 @@ int8_t run_failsafe() {
 
 #ifdef ALTHOLD
 	if (failsafe==1) { 
-		if  (yprt[3]>motor_pwm[1]) {
+		if  (yprt[3]>motor_pwm[2]) {  //ensure we are in flight (failsafe can be engaged from a different places)
 			land_detector = 0;
 			failsafe = 2;
 			alt_hold = 1;
@@ -536,7 +537,7 @@ int8_t run_failsafe() {
 	if (millis()-failsafeStart<(unsigned long)DELAY_LAND_MS) return 0;
 
 	//check if landed - possible improvement: https://github.com/diydrones/ardupilot/blob/f314b243eeefd91583339fb67126e0cc42520064/ArduCopter/land_detector.cpp
-	if (vz>-30.f && yprt[3]<motor_pwm[1]) land_detector++;
+	if (vz>-30.f && yprt[3]<motor_pwm[2]) land_detector++;
 	else land_detector = 0;
 
 	if (land_detector >= 200) { //1sec grace period. LANDED
@@ -603,7 +604,7 @@ void run_althold() {
 		pid_update(&pid_accel,accel_err,loop_s);
 
 		if (alt_hold) {
-			yprt[3] = (int)(motor_pwm[2] + pid_accel.value); 
+			yprt[3] = (int)(motor_pwm[3] + pid_accel.value); 
 		} else {
 			pid_reset(&pid_alt);
 			pid_reset(&pid_vz);
