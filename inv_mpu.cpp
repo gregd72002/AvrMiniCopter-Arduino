@@ -468,6 +468,7 @@ void mpu_init_structures()
     hw->compass_fsr      = AK89xx_FSR;
 #endif
 
+
     test->gyro_sens      = 32768/250;
     test->accel_sens     = 32768/16;
     test->reg_rate_div   = 0;    /* 1kHz. */
@@ -486,7 +487,7 @@ void mpu_init_structures()
     st->reg = reg;
     st->hw = hw;
     st->test = test;
-};
+}
 
 #define MAX_PACKET_LENGTH (12)
 
@@ -595,6 +596,7 @@ int mpu_init(struct int_param_s *int_param)
     if (i2c_write(st->hw->addr, st->reg->pwr_mgmt_1, 1, data))
         return -2;
 
+
 #if defined MPU6050
     /* Check product revision. */
     if (i2c_read(st->hw->addr, st->reg->accel_offs, 6, data))
@@ -674,6 +676,7 @@ int mpu_init(struct int_param_s *int_param)
     st->chip_cfg.dmp_on = 0;
     st->chip_cfg.dmp_loaded = 0;
     st->chip_cfg.dmp_sample_rate = 0;
+// return 0;
 
     if (mpu_set_gyro_fsr(2000))
         return -10;

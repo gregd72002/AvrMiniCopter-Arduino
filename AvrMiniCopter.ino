@@ -125,6 +125,10 @@ void initMotors() {
 	motor_idle();
 }
 
+void deinitMotors() {
+	deinitPWM();
+}
+
 void sendPacket(byte t, int v) {
 	packet[0] = t;
 	packet[1] = v & 0x00FF;
@@ -335,12 +339,12 @@ void process_command() {
 					  case 0: sendPacket(255,status); break;
 					  case 1: sendPacket(254,crc_err); break;
 					  case 2: status = 2; break;
-					  case 3: sendPacket(253,SPI_osize); break;
-					  case 4: sendPacket(253,SPI_isize); break;
-					  case 5: sendPacket(253,loop_ms); break;
-					  case 6: sendPacket(253,failsafe); break;
+					  case 3: sendPacket(252,SPI_osize); break;
+					  case 4: sendPacket(252,SPI_isize); break;
+					  case 5: sendPacket(252,loop_ms); break;
+					  case 6: sendPacket(252,failsafe); break;
 					  case 7: sendPacket(253,code); break;
-					  case 8: sendPacket(253,mpu_err); break;
+					  case 8: sendPacket(252,mpu_err); break;
 					  case 254: break; //dummy - used for SPI queued message retrieval  
 				  }
 				  break;
@@ -536,7 +540,6 @@ int8_t run_failsafe() {
 
 	if (millis()-failsafeStart<(unsigned long)DELAY_LAND_MS) return 0;
 
-	//check if landed - possible improvement: https://github.com/diydrones/ardupilot/blob/f314b243eeefd91583339fb67126e0cc42520064/ArduCopter/land_detector.cpp
 	if (vz>-30.f && yprt[3]<motor_pwm[2]) land_detector++;
 	else land_detector = 0;
 
@@ -816,6 +819,10 @@ void loop() {
 
 		case 5:
 			controller_loop();
+			break;
+		
+		case 251: case 252: case 253: case 254: 
+			deinitMotors(); //very useful for some ESCs if you loose you quadcopter in high grass
 			break;
 
 		default: break;
