@@ -25,15 +25,13 @@
 
 //  Define this symbol to get debug messages
 
-//#define  MPU_DEBUG
-
 //  Define this symbol to enable rarely-used functions from library
 
 //#define MPU_MAXIMAL
 
 //  This symbol defines how many devices are supported
 
-#define MPU_MAX_DEVICES 2
+#define MPU_MAX_DEVICES 1
 
 //  Call this function before using the MPU to select the correct device
 

@@ -623,8 +623,8 @@ void run_althold() {
 }
 
 void run_pid() {
-	if (abs(mympu.ypr[2])>50.f) yaw_target = mympu.ypr[0]; //disable yaw if rolling excessivly
-	if (abs(mympu.ypr[1])>50.f) yaw_target = mympu.ypr[0]; //disable yaw if pitching excessivly 
+	//if (abs(mympu.ypr[2])>50.f) yaw_target = mympu.ypr[0]; //disable yaw if rolling excessivly
+	//if (abs(mympu.ypr[1])>50.f) yaw_target = mympu.ypr[0]; //disable yaw if pitching excessivly 
 	//flip recovery end
 
 	//do STAB PID                                                            
@@ -796,6 +796,8 @@ void loop() {
 #else
 			ret = mympu_open(mpu_addr,200,gyro_orientation);
 #endif
+			delay(150); //without this it the behaviour is very flaky (sometimes will not boot)
+//			sendPacket(253,ret); 
 			if (ret == 0) { 
 				status = 3;
 				mympu_reset_fifo();

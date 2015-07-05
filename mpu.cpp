@@ -47,76 +47,51 @@ int8_t mympu_open(short addr,unsigned int rate, unsigned short orient) {
 	mympu.gravity = 0.f;
 
 	ret = mpu_init(NULL);
-#define MPU_DEBUG 1
-#ifdef MPU_DEBUG
 	if (ret) return 10+ret;
-#endif
 
 	ret = mpu_set_sensors(INV_XYZ_GYRO|INV_XYZ_ACCEL
 #ifdef MPU9150
 			|INV_XYZ_COMPASS
 #endif
 			); 
-#ifdef MPU_DEBUG
 	if (ret) return 20+ret;
-#endif
 
 	ret = mpu_set_gyro_fsr(FSR);
-#ifdef MPU_DEBUG
 	if (ret) return 30+ret;
-#endif
 
 	ret = mpu_set_accel_fsr(2);
-#ifdef MPU_DEBUG
 	if (ret) return 40+ret;
-#endif
 
 #ifdef MPU9150
 	ret = mpu_set_compass_sample_rate(50);
-#endif
-
-#ifdef MPU_DEBUG
 	if (ret) return 50+ret;
 #endif
 
+
 	mpu_get_power_state((unsigned char *)&ret);
-#ifdef MPU_DEBUG
 	if (!ret) return 60+ret;
-#endif
 
 	ret = mpu_configure_fifo(INV_XYZ_GYRO|INV_XYZ_ACCEL);
-#ifdef MPU_DEBUG
 	if (ret) return 70+ret;
-#endif
 
 	dmp_select_device(0);
 	dmp_init_structures();
 
 	ret = dmp_load_motion_driver_firmware();
-#ifdef MPU_DEBUG
 	if (ret) return 80+ret;
-#endif
 
 	ret = dmp_set_orientation(orient);
-#ifdef MPU_DEBUG
 	if (ret) return 90+ret;
-#endif
 
 	ret = dmp_set_fifo_rate(rate);
-#ifdef MPU_DEBUG
 	if (ret) return 100+ret;
-#endif
 
 	ret = mpu_set_dmp_state(1);
-#ifdef MPU_DEBUG
 	if (ret) return 110+ret;
-#endif
 
 	ret = dmp_enable_feature(DMP_FEATURE_6X_LP_QUAT|DMP_FEATURE_SEND_CAL_GYRO|DMP_FEATURE_GYRO_CAL|DMP_FEATURE_SEND_RAW_ACCEL);
 	//	ret = dmp_enable_feature(DMP_FEATURE_SEND_CAL_GYRO|DMP_FEATURE_GYRO_CAL);
-#ifdef MPU_DEBUG
 	if (ret) return 120+ret;
-#endif
 
 	return 0;
 }
@@ -219,6 +194,7 @@ int8_t mympu_update() {
 	q._f.y = (float)q._l[2] / (float)QUAT_SENS;
 	q._f.z = (float)q._l[3] / (float)QUAT_SENS;
 
+//Possible improvement - use rotation matrix http://www.euclideanspace.com/maths/geometry/rotations/conversions/quaternionToMatrix/
 	quaternionToEuler( &q._f, &mympu.ypr[2], &mympu.ypr[1], &mympu.ypr[0] );
 	/* need to adjust signs and do the wraps depending on the MPU mount orientation */ 
 	/* if axis is no centered around 0 but around i.e 90 degree due to mount orientation */
