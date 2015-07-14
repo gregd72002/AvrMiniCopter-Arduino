@@ -133,14 +133,6 @@ static void quaternionToEuler( const struct s_quat *q, float* x, float* y, float
         }
 }
 
-static inline float wrap_180(float x) {
-	return (x<-180.f?x+360.f:(x>180.f?x-180.f:x));
-}
-
-static inline float shift_180(float x) {
-	return x+180.f>180.f?x-180.f:x+180.f;
-}
-
 void mympu_reset_fifo() {
 	mpu_reset_fifo();
 }

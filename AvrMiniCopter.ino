@@ -194,6 +194,9 @@ void setup() {
 #endif
 }
 
+void sendStatus() {
+  sendPacket(255, (status<<8) | uint8_t(code) );
+}
 
 void process_command() { 
 
@@ -336,15 +339,14 @@ void process_command() {
 			case 244: status = v; break;
 			case 255: 
 				  switch (v) {
-					  case 0: sendPacket(255,status); break;
+					  case 0: code = -9; sendPacket(251,status); break;
 					  case 1: sendPacket(254,crc_err); break;
 					  case 2: status = 2; break;
-					  case 3: sendPacket(252,SPI_osize); break;
-					  case 4: sendPacket(252,SPI_isize); break;
-					  case 5: sendPacket(252,loop_ms); break;
-					  case 6: sendPacket(252,failsafe); break;
-					  case 7: sendPacket(253,code); break;
-					  case 8: sendPacket(252,mpu_err); break;
+					  case 3: sendPacket(251,SPI_osize); break;
+					  case 4: sendPacket(251,SPI_isize); break;
+					  case 5: sendPacket(251,loop_ms); break;
+					  case 6: sendPacket(251,failsafe); break;
+					  case 7: sendPacket(251,code); break;
 					  case 254: break; //dummy - used for SPI queued message retrieval  
 				  }
 				  break;
@@ -414,7 +416,7 @@ void log_debug() {
 	if (log_mode==1) log_accel(); 
 	if (!(loop_count%25)) {
 		//
-		Serial.println();
+		// Serial.println();
 	}
 }
 
@@ -430,13 +432,13 @@ void log() {
 			break;
 
 		case 2: 
-			if ((loop_count%20)==0) //200Hz -> every 50ms
+			if ((loop_count%20)==0) //200Hz -> every 100ms
 				log_gyro();
-			else if ((loop_count%20)==10) //200Hz -> every 50ms
+			else if ((loop_count%20)==10) //200Hz -> every 100ms
 				log_motor();
 			break;
 		case 3:
-			if ((loop_count%20)==0) //200Hz -> every 50ms
+			if ((loop_count%20)==0) //200Hz -> every 100ms
 				log_ypr();
 			else if ((loop_count%20)==10)
 				log_motor();
@@ -448,10 +450,10 @@ void log() {
 				log_altitude();
 			break;
 		case 5: 
-			if ((loop_count%20)==0) //200Hz -> every 50ms
+			if ((loop_count%20)==0) //200Hz -> every 100ms
 				log_ypr();
 #ifdef ALTHOLD
-			else if ((loop_count%20)==10) //200Hz -> every 50ms
+			else if ((loop_count%20)==10) //200Hz -> every 100ms
 				log_altitude();
 #endif
 			break;
@@ -630,15 +632,15 @@ void run_pid() {
 	//do STAB PID                                                            
 
 
-	if ((yaw_target-mympu.ypr[0])<-180.0f) yaw_target*=-1.f; 
-	if ((yaw_target-mympu.ypr[0])>180.0f) yaw_target*=-1.f; 
+	//if ((yaw_target-mympu.ypr[0])<-180.0f) yaw_target*=-1.f; 
+	//if ((yaw_target-mympu.ypr[0])>180.0f) yaw_target*=-1.f; 
 
 	//yaw pids
 	if (abs(yprt[0])>YAW_THRESHOLD) { 
 		pid_s[0].value = pid_acro_p*(yprt[0]-YAW_THRESHOLD*(yprt[0]/abs(yprt[0])));
 		yaw_target = mympu.ypr[0];
 	}
-	else pid_update(&pid_s[0],yaw_target-mympu.ypr[0],loop_s); 
+	else pid_update(&pid_s[0],wrap_180(yaw_target-mympu.ypr[0]),loop_s); 
 	//yaw pids end
 
 	if (fly_mode == 0) { //STAB
@@ -689,7 +691,8 @@ void controller_loop() {
 	}
 
 #endif
-	if (++loop_count==200) loop_count = 0;
+	if (++loop_count==200)
+		loop_count = 0;
 
 	loop_ms = millis() - p_millis;
 	loop_s = (float)(loop_ms)/1000.f;
@@ -740,7 +743,7 @@ int8_t gyroCal() {
 #define CALIBRATION_LOOPS 1600 //8sec * 200
 #define GRAVITY_LOOPS 200 
 #define FAILED_LOOPS 4000 //20sec
-#define CALIBRATION_THRESHOLD 2.0f
+#define CALIBRATION_THRESHOLD 3.0f
 
 	static float accel = 0.0f;
 	static unsigned int loop_c = 0;
@@ -775,13 +778,18 @@ int8_t gyroCal() {
 	return -1;
 }
 
+long statusMillis = 0l;
 void loop() {
+	
+	if (millis() - statusMillis > 1000) {
+		sendStatus();
+		statusMillis = millis();
+	}
 
 	if (status==0) {
 		delay(100);	
 		initAVR();
 		status = 1;
-		sendPacket(255,status); 
 	}
 
 	process_command();
@@ -790,7 +798,6 @@ void loop() {
 
 	switch (status) {
 		case 2: 
-			sendPacket(255,status); 
 #ifdef DEBUG
 			ret = mympu_open(mpu_addr,50,gyro_orientation);
 #else
@@ -808,7 +815,6 @@ void loop() {
 			}
 			break;
 		case 3:
-			sendPacket(255,status); 
 			initMotors();
 			status = 4;
 			break;
