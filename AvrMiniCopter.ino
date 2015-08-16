@@ -339,7 +339,7 @@ void process_command() {
 			case 244: status = v; break;
 			case 255: 
 				  switch (v) {
-					  case 0: code = -9; sendPacket(251,status); break;
+					  case 0: sendPacket(251,status); break;
 					  case 1: sendPacket(254,crc_err); break;
 					  case 2: status = 2; break;
 					  case 3: sendPacket(251,SPI_osize); break;
